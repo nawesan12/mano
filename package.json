@@ -1,0 +1,14 @@
+{
+  "name": "mano",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mano — tu mano derecha que nunca duerme. Fase 0: MVP personal.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev:web": "pnpm --filter @mano/web dev",
+    "dev:worker": "cd apps/worker && go run ./cmd/mano",
+    "typecheck": "pnpm --filter @mano/web typecheck",
+    "test:worker": "cd apps/worker && go vet ./... && go test ./..."
+  }
+}

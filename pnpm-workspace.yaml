@@ -1,0 +1,7 @@
+packages:
+  - "apps/web"
+overrides:
+  postcss: ^8.5.23
+  uuid: ^11.1.1
+onlyBuiltDependencies:
+  - sharp

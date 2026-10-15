@@ -1,0 +1,70 @@
+import { db, tenantId } from '@/lib/db';
+
+export const dynamic = 'force-dynamic';
+
+type Approval = { id: string; area: string; risk: string; title: string; detail: string | null };
+type Log = { id: number; area: string; summary: string; resolved_via: string; cost_usd: number; created_at: string };
+
+const usd = (n: number) => `USD ${n.toFixed(n > 0 && n < 0.1 ? 3 : 2)}`;
+const hhmm = (s: string) => new Date(s).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
+
+export default async function Home() {
+  const sb = db();
+  const t = tenantId();
+  const since = new Date(); since.setHours(0, 0, 0, 0);
+
+  const [approvals, log, spend, budget, events] = await Promise.all([
+    sb.from('approvals').select('id,area,risk,title,detail').eq('tenant_id', t).eq('status', 'pending').order('created_at'),
+    sb.from('actions_log').select('id,area,summary,resolved_via,cost_usd,created_at').eq('tenant_id', t).order('created_at', { ascending: false }).limit(20),
+    sb.from('spend_summary').select('day_usd,month_usd').eq('tenant_id', t).maybeSingle(),
+    sb.from('budgets').select('cap_day_usd,cap_month_usd').eq('tenant_id', t).maybeSingle(),
+    sb.from('events').select('triaged_via').eq('tenant_id', t).gte('received_at', since.toISOString()),
+  ]);
+
+  const pend = (approvals.data ?? []) as Approval[];
+  const rows = (log.data ?? []) as Log[];
+  const day = Number(spend.data?.day_usd ?? 0), month = Number(spend.data?.month_usd ?? 0);
+  const capDay = Number(budget.data?.cap_day_usd ?? 3), capMonth = Number(budget.data?.cap_month_usd ?? 40);
+  const ev = (events.data ?? []) as { triaged_via: string | null }[];
+  const free = ev.length ? Math.round((ev.filter((e) => e.triaged_via === 'rule').length / ev.length) * 100) : 0;
+
+  return (
+    <main>
+      <h1>Hola. Esto hizo <em>Mano</em>.</h1>
+      <p className="sub">Las decisiones se toman desde Telegram. Este panel muestra el estado.</p>
+
+      <section className="stats">
+        <div className="stat"><small>Esperan tu ok</small><b>{pend.length}</b></div>
+        <div className="stat"><small>Eventos hoy</small><b>{ev.length}</b></div>
+        <div className="stat"><small>Resueltos sin IA</small><b>{free}%</b></div>
+        <div className="stat"><small>Gasto hoy</small><b>{usd(day)}</b><small>tope {usd(capDay)}</small></div>
+        <div className="stat"><small>Gasto del mes</small><b>{usd(month)}</b><small>tope {usd(capMonth)}</small></div>
+      </section>
+
+      <div className="cols">
+        <section className="card">
+          <h2>Necesita tu ok</h2>
+          {pend.length === 0 && <p className="empty">Nada pendiente.</p>}
+          {pend.map((a) => (
+            <div key={a.id} className={`appr ${a.risk}`}>
+              <span className="chip">{a.area} · riesgo {a.risk}</span>
+              <div><b>{a.title}</b></div>
+              {a.detail && <p>{a.detail.slice(0, 400)}</p>}
+            </div>
+          ))}
+        </section>
+        <section className="card">
+          <h2>Registro</h2>
+          {rows.length === 0 && <p className="empty">Todavía no hizo nada. Escribile al bot.</p>}
+          {rows.map((r) => (
+            <div key={r.id} className="row">
+              <time>{hhmm(r.created_at)}</time>
+              <span>{r.summary}</span>
+              <span>{r.cost_usd > 0 ? usd(Number(r.cost_usd)) : r.resolved_via}</span>
+            </div>
+          ))}
+        </section>
+      </div>
+    </main>
+  );
+}
