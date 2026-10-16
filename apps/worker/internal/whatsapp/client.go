@@ -187,6 +187,18 @@ func (c *Client) WindowOpen(ctx context.Context, phone string) bool {
 	return err == nil && !last.IsZero() && c.now().Sub(last) < Window
 }
 
+// Notify le escribe a un cliente: texto libre si la ventana está abierta; si no, la plantilla con sus parámetros.
+// Sin plantilla y con la ventana cerrada, ErrWindowClosed (nunca se inventa una plantilla).
+func (c *Client) Notify(ctx context.Context, to, text, template, lang string, params ...string) error {
+	if c.WindowOpen(ctx, to) {
+		return c.SendText(ctx, to, text)
+	}
+	if template == "" {
+		return ErrWindowClosed
+	}
+	return c.SendTemplate(ctx, to, template, lang, params...)
+}
+
 // ReplyInWindow responde libre a un cliente; falla si la ventana se cerró (no inventa una plantilla).
 func (c *Client) ReplyInWindow(ctx context.Context, to, body string) error {
 	if !c.WindowOpen(ctx, to) {

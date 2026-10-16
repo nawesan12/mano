@@ -82,6 +82,8 @@ type Config struct {
 	Location *time.Location
 	BriefAt  string // "07:00"
 	CloseAt  string // "19:00"; vacío = sin cierre del día
+	// Recordatorios de turnos del día siguiente (WhatsApp, con aprobación). Vacío = apagados.
+	RemindersAt, WATemplateReminder string
 }
 
 func (c Config) TelegramEnabled() bool { return c.TelegramToken != "" }
@@ -212,9 +214,11 @@ func Load() (Config, error) {
 
 		PanelToken: str("PANEL_TOKEN", false),
 
-		Port:    def("PORT", "8787"),
-		BriefAt: def("BRIEF_AT", "07:00"),
-		CloseAt: str("BRIEF_CLOSE_AT", false),
+		Port:               def("PORT", "8787"),
+		BriefAt:            def("BRIEF_AT", "07:00"),
+		CloseAt:            str("BRIEF_CLOSE_AT", false),
+		RemindersAt:        str("REMINDERS_AT", false),
+		WATemplateReminder: str("WA_TEMPLATE_REMINDER", false),
 	}
 	if c.TenantID != "" && !uuidRe.MatchString(c.TenantID) {
 		missing = append(missing, "MANO_TENANT_ID: tiene que ser un UUID")
@@ -224,6 +228,9 @@ func Load() (Config, error) {
 	}
 	if c.PanelToken != "" && len(c.PanelToken) < 24 {
 		missing = append(missing, "PANEL_TOKEN: usá al menos 24 caracteres al azar (openssl rand -hex 24)")
+	}
+	if c.RemindersAt != "" && !hhmmRe.MatchString(c.RemindersAt) {
+		missing = append(missing, "REMINDERS_AT: formato HH:MM, o vacío para apagarlos")
 	}
 	if c.CloseAt != "" && !hhmmRe.MatchString(c.CloseAt) {
 		missing = append(missing, "BRIEF_CLOSE_AT: formato HH:MM, o vacío para no mandar cierre")

@@ -19,6 +19,7 @@ type CalEvent struct {
 	Organizer   string    `json:"organizer"`
 	OrganizerMe bool      `json:"organizer_me"`
 	Busy        bool      `json:"busy"` // false si está marcado como disponible (transparent)
+	Attendees   []string  `json:"attendees"`
 }
 
 func (s *Store) CalendarSyncToken(ctx context.Context) (string, error) {
@@ -39,7 +40,7 @@ func (s *Store) SetCalendarSyncToken(ctx context.Context, token string) error {
 // CalendarEvents devuelve la copia local, ordenada por inicio.
 func (s *Store) CalendarEvents(ctx context.Context) ([]CalEvent, error) {
 	var out []CalEvent
-	q := s.q("select", "id,summary,start_at,end_at,all_day,status,organizer,organizer_me,busy", "order", "start_at")
+	q := s.q("select", "id,summary,start_at,end_at,all_day,status,organizer,organizer_me,busy,attendees", "order", "start_at")
 	if err := s.do(ctx, http.MethodGet, "calendar_events", q, nil, "", &out); err != nil {
 		return nil, err
 	}
@@ -56,7 +57,7 @@ func (s *Store) UpsertCalendarEvents(ctx context.Context, evs []CalEvent) error 
 		rows[i] = map[string]any{
 			"tenant_id": s.tenant, "id": e.ID, "summary": e.Summary, "start_at": e.Start.UTC().Format(time.RFC3339),
 			"end_at": e.End.UTC().Format(time.RFC3339), "all_day": e.AllDay, "status": e.Status, "organizer": e.Organizer,
-			"organizer_me": e.OrganizerMe, "busy": e.Busy, "updated_at": time.Now().UTC().Format(time.RFC3339),
+			"organizer_me": e.OrganizerMe, "busy": e.Busy, "attendees": orEmpty(e.Attendees), "updated_at": time.Now().UTC().Format(time.RFC3339),
 		}
 	}
 	return s.do(ctx, http.MethodPost, "calendar_events", url.Values{"on_conflict": {"tenant_id,id"}}, rows, "resolution=merge-duplicates", nil)

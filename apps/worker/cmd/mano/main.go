@@ -295,6 +295,20 @@ func main() {
 		})
 	}
 
+	if cfg.RemindersAt != "" && waClient != nil && cfg.CalendarEnabled {
+		ag.SetReminders(waClient, cfg.WATemplateReminder, cfg.WATemplateLang)
+		schedule.Daily(ctx, "recordatorios", cfg.RemindersAt, cfg.Location, func(c context.Context) {
+			ap, err := ag.TomorrowReminders(c)
+			if err != nil {
+				slog.Error("recordatorios", "err", err)
+				return
+			}
+			if ap != nil {
+				_ = notifier.ApprovalCard(c, *ap)
+			}
+		})
+	}
+
 	// Diagnóstico de la semana: los lunes, cuánto te ahorró y cuánto costó.
 	schedule.Daily(ctx, "diagnostico", "09:00", cfg.Location, func(c context.Context) {
 		if time.Now().In(cfg.Location).Weekday() != time.Monday {
