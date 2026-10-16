@@ -5,7 +5,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/nawesan12/mano/worker/internal/agent"
+	"github.com/nawesan12/mano/worker/internal/core"
 	"github.com/nawesan12/mano/worker/internal/store"
 	"github.com/nawesan12/mano/worker/internal/testutil"
 )
@@ -79,5 +82,32 @@ func TestShipmentsList(t *testing.T) {
 	s := &Service{Store: store.New(srv.URL, "service", testutil.Tenant)}
 	if got := s.shipments(context.Background()); got != "Envíos en curso: 1\n· 5 para despachar · Ana · seguimiento TR1" {
 		t.Fatalf("%q", got)
+	}
+}
+
+type sayCh struct{ sent []string }
+
+func (c *sayCh) Send(_ context.Context, t string) error             { c.sent = append(c.sent, t); return nil }
+func (c *sayCh) ApprovalCard(context.Context, store.Approval) error { return nil }
+
+// "Acordate que…" se vuelve /recordar y la respuesta dice qué entendió, en un solo mensaje.
+func TestNaturalLanguageRoutes(t *testing.T) {
+	db := testutil.NewFakeRest(nil)
+	srv := httptest.NewServer(db)
+	defer srv.Close()
+	st := store.New(srv.URL, "service", testutil.Tenant)
+	cheap := &testutil.ScriptedLLM{T: core.Cheap, Reply: func(core.Request) string {
+		return `{"accion":"recordar","tema":"Honorarios","dato":"3% más IVA"}`
+	}}
+	top := &testutil.ScriptedLLM{T: core.Top, Reply: func(core.Request) string { return "ok" }}
+	models := agent.NewModels(cheap, top, st, core.Caps{DayUSD: 3, MonthUSD: 40})
+	s := &Service{Agent: agent.New(st, models, nil, nil, nil, time.UTC), Models: models, Store: st}
+	ch := &sayCh{}
+	s.HandleText(context.Background(), ch, "Acordate que los honorarios son 3% más IVA")
+	if len(ch.sent) != 1 || ch.sent[0] != "Entendí: /recordar Honorarios: 3% más IVA\nAnotado: Honorarios." {
+		t.Fatalf("%q", ch.sent)
+	}
+	if len(db.Rows("memory_facts")) != 1 {
+		t.Fatal("se guardó")
 	}
 }
