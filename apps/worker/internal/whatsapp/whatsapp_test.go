@@ -324,3 +324,23 @@ func TestOwnerVoiceNote(t *testing.T) {
 		t.Fatalf("todo saliente queda registrado: %v", kinds)
 	}
 }
+
+func TestNotifyUsesTemplateOutsideWindow(t *testing.T) {
+	r := setup(t, "")
+	ctx := context.Background()
+	if err := r.wh.Client.Notify(ctx, clientTel, "hola", "", "es_AR"); err != ErrWindowClosed {
+		t.Fatal("sin ventana ni plantilla no escribe")
+	}
+	if err := r.wh.Client.Notify(ctx, clientTel, "hola", "turno_recordatorio", "es_AR", "Ana", "jueves 16 de octubre", "10:00"); err != nil {
+		t.Fatal(err)
+	}
+	sent := r.graph.take()
+	if len(sent) != 1 || sent[0]["type"] != "template" {
+		t.Fatalf("fuera de la ventana va la plantilla: %v", sent)
+	}
+	_ = r.wh.Store.TouchContact(ctx, clientTel, "Ana", false, time.Now())
+	_ = r.wh.Client.Notify(ctx, clientTel, "hola", "turno_recordatorio", "es_AR")
+	if sent = r.graph.take(); len(sent) != 1 || sent[0]["type"] != "text" {
+		t.Fatalf("en la ventana, texto: %v", sent)
+	}
+}

@@ -249,6 +249,16 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			return
 		}
 		_ = ch.ApprovalCard(ctx, *ap)
+	case "recordatorios":
+		ap, err := s.Agent.TomorrowReminders(ctx)
+		switch {
+		case err != nil:
+			say("No pude armarlos: " + err.Error())
+		case ap == nil:
+			say("Mañana no hay turnos con clientes que tengan teléfono (o los recordatorios están apagados).")
+		default:
+			_ = ch.ApprovalCard(ctx, *ap)
+		}
 	case "libre":
 		say(s.Agent.Free(ctx, args))
 	case "agendar":

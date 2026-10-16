@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"strings"
@@ -987,5 +988,54 @@ func TestAgendarYLibre(t *testing.T) {
 	}
 	if msg, ap := a.ProposeMeeting(ctx, "el jueves", 60, "", ""); ap != nil || !strings.Contains(msg, "hora") {
 		t.Fatal("sin hora no agenda:", msg)
+	}
+}
+
+type fakeCustomerNotifier struct {
+	sent   []string
+	closed map[string]bool
+}
+
+func (f *fakeCustomerNotifier) Notify(_ context.Context, to, text, tpl, _ string, params ...string) error {
+	if f.closed[to] {
+		return errors.New("ventana cerrada")
+	}
+	f.sent = append(f.sent, to+": "+text+" | "+strings.Join(params, ","))
+	return nil
+}
+
+// Los turnos de mañana con clientes (por invitado o por nombre) salen en una sola tarjeta; al aprobar se mandan.
+func TestTomorrowReminders(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, _, _ := setup(t)
+	a.loc = time.UTC
+	nt := &fakeCustomerNotifier{closed: map[string]bool{"5493333333333": true}}
+	a.SetReminders(nt, "", "es_AR")
+	db.Set("tenants", []map[string]any{{"id": tenant, "name": "Consultorio Sur"}})
+	tm := time.Now().UTC().Add(24 * time.Hour)
+	at := func(h int) string {
+		return time.Date(tm.Year(), tm.Month(), tm.Day(), h, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	}
+	db.Set("calendar_events", []map[string]any{
+		{"tenant_id": tenant, "id": "e1", "summary": "Control", "start_at": at(10), "end_at": at(11), "status": "confirmed", "attendees": []string{"ana@mail.com"}},
+		{"tenant_id": tenant, "id": "e2", "summary": "Turno Gómez", "start_at": at(12), "end_at": at(13), "status": "confirmed"},
+		{"tenant_id": tenant, "id": "e3", "summary": "Almuerzo", "start_at": at(14), "end_at": at(15), "status": "confirmed"},
+		{"tenant_id": tenant, "id": "e4", "summary": "Turno Gómez", "start_at": time.Now().Add(72 * time.Hour).Format(time.RFC3339), "end_at": time.Now().Add(73 * time.Hour).Format(time.RFC3339), "status": "confirmed"},
+	})
+	db.Set("customers", []map[string]any{
+		{"id": "c1", "tenant_id": tenant, "name": "Ana Paz", "email": "ana@mail.com", "phone": "5491111111111"},
+		{"id": "c2", "tenant_id": tenant, "name": "Gómez", "phone": "5493333333333"},
+		{"id": "c3", "tenant_id": tenant, "name": "Sin Teléfono", "email": "x@mail.com"},
+	})
+	ap, err := a.TomorrowReminders(ctx)
+	if err != nil || ap == nil || ap.Title != "Mandar recordatorio a 2 turnos de mañana" || !strings.Contains(ap.Detail, "Hola Ana, te recordamos tu turno de mañana") || !strings.Contains(ap.Detail, "con Consultorio Sur") {
+		t.Fatalf("%+v %v", ap, err)
+	}
+	got := a.OnDecision(ctx, ap.ID, Approve, "test")
+	if !strings.Contains(got, "mandé 1 recordatorio") || !strings.Contains(got, "No les pude escribir a Gómez") {
+		t.Fatal(got)
+	}
+	if len(nt.sent) != 1 || !strings.HasPrefix(nt.sent[0], "5491111111111: Hola Ana") || !strings.Contains(nt.sent[0], "| Ana,") {
+		t.Fatal(nt.sent)
 	}
 }

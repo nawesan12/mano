@@ -98,6 +98,10 @@ type gEvent struct {
 		DisplayName string `json:"displayName"`
 		Self        bool   `json:"self"`
 	} `json:"organizer"`
+	Attendees []struct {
+		Email string `json:"email"`
+		Self  bool   `json:"self"`
+	} `json:"attendees"`
 }
 
 func parseTime(t gTime, loc *time.Location) (time.Time, bool) {
@@ -119,8 +123,14 @@ func toCal(e gEvent, loc *time.Location) store.CalEvent {
 	if org == "" {
 		org = e.Organizer.Email
 	}
+	var att []string
+	for _, a := range e.Attendees {
+		if !a.Self && a.Email != "" {
+			att = append(att, strings.ToLower(a.Email))
+		}
+	}
 	return store.CalEvent{ID: e.ID, Summary: e.Summary, Start: start, End: end, AllDay: e.Start.Date != "" && e.Start.DateTime == "",
-		Status: e.Status, Organizer: org, OrganizerMe: e.Organizer.Self, Busy: e.Transparency != "transparent"}
+		Status: e.Status, Organizer: org, OrganizerMe: e.Organizer.Self, Busy: e.Transparency != "transparent", Attendees: att}
 }
 
 // Changes trae lo que cambió desde el token (o todo, si token == ""). Devuelve el próximo token.

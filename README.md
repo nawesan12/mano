@@ -95,6 +95,8 @@ Mano vigila tu calendario con notificaciones push de Google y sincronización in
 
 **Agendar:** "agendame una reunión con Pérez el jueves a las 15" o `/agendar el jueves a las 15: reunión con Pérez`. Te muestra la tarjeta con el horario, si se pisa con algo y a quién invita (el mail sale del CRM). Lo crea al aprobar, mandando la invitación. "¿Cuándo tengo libre el jueves?" o `/libre jueves` te dice los huecos de 9 a 18 sin gastar IA. Para crear eventos hace falta el scope `calendar.events`.
 
+**Recordatorios de turnos:** con `REMINDERS_AT=18:00`, cada tarde Mano cruza los eventos de mañana con los clientes del CRM que tienen teléfono (por invitado o por nombre en el título) y te deja **una sola tarjeta**: "Mandar recordatorio a 4 turnos de mañana", con la lista y el texto. Al aprobar, se los manda por WhatsApp. Fuera de la ventana de 24 h usa la plantilla `WA_TEMPLATE_REMINDER`; sin plantilla, te dice a quién no le pudo escribir. También a pedido, con `/recordatorios`. Correr `0021_recordatorios.sql`.
+
 Lo que movés vos no te lo avisa. Mira solo las próximas dos semanas. El resumen de la mañana trae la agenda del día.
 
 Puesta en marcha: habilitá Google Calendar API en el mismo proyecto de Gmail y sacá el refresh token con los scopes de Gmail más `calendar.readonly`. En `.env`: `CALENDAR_ENABLED=true`, `PUBLIC_URL` (https con certificado válido) y `CALENDAR_PUSH_TOKEN`. Correr `0007_calendar.sql`. La primera sincronización solo llena la copia local; el canal push se renueva a diario.
