@@ -231,3 +231,57 @@ func TestHelpers(t *testing.T) {
 		t.Fatal("ráfaga sin límite")
 	}
 }
+
+type fakeCalls struct {
+	mu     sync.Mutex
+	events []CallEvent
+	status []string
+}
+
+func (f *fakeCalls) OnCallEvent(_ context.Context, ev CallEvent) {
+	f.mu.Lock()
+	f.events = append(f.events, ev)
+	f.mu.Unlock()
+}
+func (f *fakeCalls) OnCallStatus(_ context.Context, id, s string) {
+	f.mu.Lock()
+	f.status = append(f.status, id+":"+s)
+	f.mu.Unlock()
+}
+
+func TestCallWebhooksAndPermission(t *testing.T) {
+	r := setup(t, "")
+	fc := &fakeCalls{}
+	r.wh.Calls = fc
+	raw := `{"entry":[{"changes":[{"field":"calls","value":{"metadata":{"phone_number_id":"PHONE123"},
+		"calls":[{"id":"wacid.1","from":"` + phoneID + `","to":"` + ownerTel + `","event":"connect","direction":"BUSINESS_INITIATED","session":{"sdp_type":"answer","sdp":"v=0"}}],
+		"statuses":[{"id":"wacid.1","type":"call","status":"ACCEPTED","recipient_id":"` + ownerTel + `"}]}}]}]}`
+	var p Payload
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		t.Fatal(err)
+	}
+	r.wh.process(p)
+	r.wh.process(p) // reintento de Meta
+	if len(fc.events) != 1 || fc.events[0].Session.SDP != "v=0" || len(fc.status) != 1 || fc.status[0] != "wacid.1:ACCEPTED" {
+		t.Fatalf("eventos de llamada (con dedupe): %+v %v", fc.events, fc.status)
+	}
+	if len(r.db.Rows("wa_messages")) != 0 {
+		t.Fatal("un estado de llamada no es un mensaje")
+	}
+
+	r.wh.process(inbound(ownerTel, "wamid.perm", map[string]any{"type": "interactive", "interactive": map[string]any{
+		"type": "call_permission_reply", "call_permission_reply": map[string]any{"response": "accept", "is_permanent": true}}}))
+	var perm string
+	for _, c := range r.db.Rows("wa_contacts") {
+		if c["phone"] == ownerTel {
+			perm, _ = c["call_permission"].(string)
+		}
+	}
+	if perm != "permanent" {
+		t.Fatalf("el permiso del dueño queda guardado: %q", perm)
+	}
+	sent := r.graph.take()
+	if len(sent) != 1 || !strings.Contains(sent[0]["text"].(map[string]any)["body"].(string), "te llamo") {
+		t.Fatalf("confirma el permiso: %v", sent)
+	}
+}

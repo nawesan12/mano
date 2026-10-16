@@ -24,6 +24,11 @@ h2 { font: 500 22px var(--display); margin: 0 0 12px; }
 .appr { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
 .appr.alto { border-color: var(--bad); background: var(--bad-soft); }
 .appr p { color: var(--muted); margin: 4px 0 0; white-space: pre-line; font-size: 14px; }
+.call { border-top: 1px solid var(--line); padding: 10px 0; }
+.call p { color: var(--muted); margin: 4px 0 0; white-space: pre-line; font-size: 14px; }
+.call small { font: 12px var(--mono); color: var(--muted); }
+.call.missed .chip, .call.failed .chip { color: var(--bad); }
+.gap { margin-top: 24px; }
 .chip { font: 500 11px var(--mono); text-transform: uppercase; color: var(--muted); }
 .row { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .row:first-child { border-top: 0; }

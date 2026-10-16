@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/nawesan12/mano/worker/internal/agent"
@@ -20,11 +21,17 @@ type Channel interface {
 	ApprovalCard(ctx context.Context, a store.Approval) error
 }
 
+// Dialer llama al dueño a pedido (voice.Caller). nil si la voz está apagada.
+type Dialer interface {
+	CallNow(ctx context.Context) string
+}
+
 type Service struct {
 	Agent  *agent.Agent
 	Models *agent.Models
 	Store  *store.Store
 	STT    *stt.Client
+	Calls  Dialer
 }
 
 // ParseCommand: "/recordar@ManoBot Tema: dato" → ("recordar", "Tema: dato")
@@ -43,7 +50,7 @@ var DecisionRe = regexp.MustCompile(`^ap:([0-9a-f-]{36}):(ok|no|ig)$`)
 
 var factRe = regexp.MustCompile(`(?s)^([^:]{1,60}):\s*(.+)$`)
 
-const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema. O escribime normal."
+const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamame /silencio 21-8 /llamadas 3. O escribime normal."
 
 // HandleText atiende un mensaje de texto del dueño: comandos primero (gratis), después el agente.
 func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
@@ -101,9 +108,74 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 		default:
 			say(fmt.Sprintf("Olvidé %d dato(s) sobre %s.", n, args))
 		}
+	case "regla":
+		if args == "" {
+			say("Decime la regla en tus palabras. Por ejemplo: /regla llamame si escribe Liliana o si entra un pago de más de 500.000")
+			return
+		}
+		msg, ap := s.Agent.ProposeRule(ctx, args)
+		if ap == nil {
+			say(msg)
+			return
+		}
+		_ = ch.ApprovalCard(ctx, *ap)
+	case "llamame":
+		if s.Calls == nil {
+			say("Las llamadas no están activadas. Configurá la voz en el .env (VOICE_ENABLED).")
+			return
+		}
+		say(s.Calls.CallNow(ctx))
+	case "silencio", "llamadas":
+		s.callPolicy(ctx, cmd, args, say)
 	default:
 		say("No conozco ese comando. " + help)
 	}
+}
+
+// callPolicy ajusta cuándo y cuánto puede llamar Mano. Sin argumentos, muestra cómo está.
+func (s *Service) callPolicy(ctx context.Context, cmd, args string, say func(string)) {
+	p, err := s.Store.CallPolicy(ctx)
+	if err != nil {
+		say("No pude leer la configuración de llamadas: " + err.Error())
+		return
+	}
+	args = strings.ToLower(strings.TrimSpace(args))
+	switch {
+	case args == "":
+		state := "activas"
+		if !p.Enabled {
+			state = "apagadas"
+		}
+		say(fmt.Sprintf("Llamadas %s. Silencio de %s a %s. Hasta %d por día.", state, p.QuietFrom, p.QuietTo, p.MaxPerDay))
+		return
+	case cmd == "llamadas" && (args == "off" || args == "no" || args == "0"):
+		p.Enabled = false
+	case cmd == "llamadas" && (args == "on" || args == "si" || args == "sí"):
+		p.Enabled = true
+	case cmd == "llamadas":
+		n, err := strconv.Atoi(args)
+		if err != nil || n < 1 || n > 20 {
+			say("Usalo así: /llamadas 3 (máximo por día), /llamadas off o /llamadas on")
+			return
+		}
+		p.MaxPerDay, p.Enabled = n, true
+	case cmd == "silencio":
+		from, to, err := core.ParseQuiet(args)
+		if err != nil {
+			say(err.Error())
+			return
+		}
+		p.QuietFrom, p.QuietTo = from, to
+	}
+	if err := s.Store.SetCallPolicy(ctx, p); err != nil {
+		say("No pude guardarlo: " + err.Error())
+		return
+	}
+	if !p.Enabled {
+		say("Listo, no te llamo más. Te aviso por mensaje. Para volver: /llamadas on")
+		return
+	}
+	say(fmt.Sprintf("Listo. Te llamo solo por lo crítico, de %s a %s, hasta %d por día.", p.QuietTo, p.QuietFrom, p.MaxPerDay))
 }
 
 // HandleButton resuelve el id de un botón. Devuelve false si no es un botón de Mano.

@@ -142,3 +142,77 @@ func TestOwnerSystem(t *testing.T) {
 		t.Fatal(s)
 	}
 }
+
+type fakeCaller struct{ reqs []CallRequest }
+
+func (c *fakeCaller) CallOwner(_ context.Context, r CallRequest) (string, error) {
+	c.reqs = append(c.reqs, r)
+	return "", nil
+}
+
+// Lo crítico llama (con la aprobación ya creada); lo importante no; una regla del dueño puede forzar o silenciar.
+func TestCriticalCallsOwner(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, n, _ := setup(t)
+	fc := &fakeCaller{}
+	a.SetCaller(fc)
+	a.spawn = func(f func()) { f() }
+
+	_ = a.OnEvent(ctx, mail("m6", "Ramírez <ramirez@mail.com>", "¿Me pasás presupuesto?"))
+	if len(fc.reqs) != 0 {
+		t.Fatal("lo importante no llama")
+	}
+
+	rules := db.Rows("rules")
+	rules = append(rules,
+		map[string]any{"id": "r-cbu", "tenant_id": tenant, "active": true, "priority": 20, "hits": 0,
+			"match": map[string]any{"textIncludesAny": []string{"nuevo cbu"}}, "outcome": map[string]any{"urgency": "critical", "needsAction": true, "note": "Posible fraude"}},
+		map[string]any{"id": "r-lili", "tenant_id": tenant, "active": true, "priority": 5, "hits": 0,
+			"match": map[string]any{"senderIncludesAny": []string{"liliana"}}, "outcome": map[string]any{"urgency": "high", "notify": "call", "ignoreQuiet": true}},
+		map[string]any{"id": "r-mudo", "tenant_id": tenant, "active": true, "priority": 6, "hits": 0,
+			"match": map[string]any{"senderIncludesAny": []string{"contador"}}, "outcome": map[string]any{"urgency": "critical", "notify": "silent"}},
+	)
+	db.Set("rules", rules)
+
+	_ = a.OnEvent(ctx, mail("m7", "Corralón <pagos@corralon.com>", "Les pasamos el nuevo CBU"))
+	if len(fc.reqs) != 1 || fc.reqs[0].ApprovalID == "" || fc.reqs[0].When.Urgency != core.Critical || !strings.Contains(fc.reqs[0].Detail, "nuevo CBU") {
+		t.Fatalf("lo crítico llama con la aprobación lista: %+v", fc.reqs)
+	}
+	_ = a.OnEvent(ctx, mail("m8", "Liliana <lili@mail.com>", "¿Hablamos?"))
+	if len(fc.reqs) != 2 || !fc.reqs[1].When.Forced || !fc.reqs[1].When.IgnoreQuiet {
+		t.Fatalf("la regla del dueño fuerza la llamada: %+v", fc.reqs)
+	}
+	sent := len(n.sent)
+	_ = a.OnEvent(ctx, mail("m9", "Contador <contador@mail.com>", "Vence hoy"))
+	if len(fc.reqs) != 2 || len(n.sent) != sent {
+		t.Fatal("silent no llama ni avisa al momento")
+	}
+}
+
+// "/regla llamame si escribe Liliana" → regla validada → aprobación → recién ahí se guarda.
+func TestProposeRuleNeedsApproval(t *testing.T) {
+	ctx := context.Background()
+	a, db, cheap, _, _, _ := setup(t)
+	cheap.Reply = func(core.Request) string {
+		return `{"match":{"senderIncludesAny":["Liliana"]},"outcome":{"urgency":"high","notify":"call"},"summary":"Te llamo si escribe Liliana"}`
+	}
+	msg, ap := a.ProposeRule(ctx, "llamame si escribe Liliana")
+	if ap == nil || ap.Action.Type != "rule.add" {
+		t.Fatalf("tenía que proponer la regla: %q", msg)
+	}
+	if len(db.Rows("rules")) != 1 {
+		t.Fatal("no se guarda antes de aprobar")
+	}
+	if got := a.OnDecision(ctx, ap.ID, Approve, "test"); !strings.Contains(got, "regla activa") {
+		t.Fatal(got)
+	}
+	rules := db.Rows("rules")
+	if len(rules) != 2 || rules[1]["origin"] != "owner" {
+		t.Fatalf("regla guardada: %v", rules)
+	}
+
+	cheap.Reply = func(core.Request) string { return `{"match":{},"outcome":{"urgency":"high"}}` }
+	if _, ap := a.ProposeRule(ctx, "algo"); ap != nil {
+		t.Fatal("una regla vacía no se propone")
+	}
+}

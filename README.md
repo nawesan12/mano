@@ -1,6 +1,6 @@
 # Mano
 
-Tu mano derecha que nunca duerme. **Fase 0: MVP personal.** Un agente que vigila tu Gmail, te avisa por Telegram, redacta respuestas para que las apruebes con un toque y te manda el resumen cada mañana, sin quemar tokens.
+Tu mano derecha que nunca duerme. **Fase 0: MVP personal.** Un agente que vigila tu Gmail y tu WhatsApp, te avisa por Telegram, redacta respuestas para que las apruebes con un toque y te manda el resumen cada mañana, sin quemar tokens. **Cuando algo es crítico, te llama**: te cuenta qué pasó y lo resolvés hablando.
 
 ## Stack
 
@@ -11,6 +11,7 @@ Tu mano derecha que nunca duerme. **Fase 0: MVP personal.** Un agente que vigila
 | Datos | Supabase (Postgres + pgvector + RLS); el worker usa la API REST |
 | IA | Anthropic o cualquier API compatible con OpenAI (DeepSeek, OpenRouter, Ollama). BYOK listo |
 | Canales | Telegram (Bot API), WhatsApp Cloud API, Gmail (API REST + Pub/Sub) |
+| Voz | WhatsApp Calling API (WebRTC) + voz en tiempo real (OpenAI Realtime). El worker hace de puente con [pion/webrtc](https://github.com/pion/webrtc), la única dependencia externa |
 
 ## Cómo piensa
 
@@ -35,7 +36,8 @@ apps/worker/            Go
   internal/gmail        Gmail REST + OAuth con refresh token
   internal/owner        comandos y atención al dueño, igual para Telegram y WhatsApp
   internal/telegram     Bot API y tarjetas de aprobación
-  internal/whatsapp     Cloud API: webhook firmado, botones, plantillas, ventana de 24 h, costos
+  internal/whatsapp     Cloud API: webhook firmado, botones, plantillas, ventana de 24 h, costos, llamadas
+  internal/voice        Mano te llama: puente WebRTC, sesión de voz, herramientas, reintentos
   internal/stt          transcripción de audios (API compatible con OpenAI)
   internal/server       webhook de Gmail y /health
   internal/schedule     tareas diarias por hora local
@@ -54,7 +56,8 @@ supabase                migración con RLS + seed
    - Creá un topic, dale permiso de publicación a `gmail-api-push@system.gserviceaccount.com` y una suscripción push a `https://TU-WORKER/webhooks/gmail?token=GMAIL_PUSH_TOKEN`.
    - El worker registra y renueva el watch solo; para probarlo a mano: `make watch`.
 6. WhatsApp (opcional): ver la sección de abajo.
-7. Panel: `pnpm install && pnpm dev:web` → http://localhost:3000
+7. Llamadas (opcional): ver "Mano te llama".
+8. Panel: `pnpm install && pnpm dev:web` → http://localhost:3000
 
 ## WhatsApp
 
@@ -74,13 +77,36 @@ Puesta en marcha:
    La variable no puede ir ni al principio ni al final del cuerpo. Mantenela seca y transaccional: si suena promocional, Meta la recategoriza como marketing y cuesta más.
 4. Correr `supabase/migrations/0002_whatsapp.sql`.
 
+## Mano te llama
+
+Cuando entra algo **crítico** (cambio de CBU, intimación, cliente grande enojado) o algo que vos pediste con una regla, Mano te llama por WhatsApp. Al atender te dice "Hola, soy Mano" y el motivo; le contestás hablando: "mandale que lo verificamos", "descartalo", "no me avises más de este", "anotá que Pérez paga a 60 días". Antes de aprobar te lee qué va a mandar y espera tu sí. Al cortar te deja el resumen por mensaje.
+
+- **Qué llama:** urgencia `critical`, o una regla con `"notify":"call"`. Lo `high` sigue llegando por mensaje.
+- **Cuándo no:** horario de silencio (21 a 8 por defecto), tope diario (3), o si no atendiste las dos últimas (WhatsApp revoca el permiso a las 4 sin atender). Una regla con `"ignoreQuiet":true` puede llamar de noche.
+- **Si no atendés:** un solo reintento a los 10 minutos si sigue pendiente; después, mensaje. Si cortás, no insiste.
+- **También al revés:** llamá vos al número de Mano y hablale. Las llamadas entrantes no las cobra Meta. A números que no son el tuyo no los atiende.
+- **Costo:** Meta cobra el minuto saliente (Argentina ≈ USD 0,0101) y la voz pasa por el gobernador como cualquier IA: se autoriza el peor caso antes de marcar y se registra el consumo real en `usage` (tier `voice`). Cada llamada queda en `calls` y en `actions_log`.
+
+Cómo funciona: Meta y el modelo de voz esperan los dos una oferta WebRTC, así que el worker abre una conexión con cada uno y reenvía el audio Opus tal cual, sin transcodificar. Las herramientas de la llamada (aprobar, descartar, silenciar, recordar, cortar) pasan por `Agent.OnDecision`, el mismo camino que los botones.
+
+Puesta en marcha:
+
+1. Correr `supabase/migrations/0003_calls.sql`.
+2. En Meta: habilitar **Calling** en el número (WhatsApp Manager → número → Llamadas), suscribir el webhook al campo **`calls`** y activar `callback_permission_status` para que llamar una vez a Mano ya te dé el permiso.
+3. Permiso: escribile cualquier cosa a Mano por WhatsApp y mandá `/llamame`. Si falta el permiso, te llega el pedido; elegí **Siempre permitir**.
+4. `.env`: `VOICE_ENABLED=true`, `REALTIME_API_KEY` y `REALTIME_PRICE_IN/OUT` con la tarifa vigente del modelo.
+5. VPS: WebRTC usa UDP. Abrí el rango UDP efímero en el firewall y, con Docker, corré con `--network host`.
+6. Probá: `/llamame`, atendé y decí "¿qué tengo pendiente?".
+
+Ajustes por chat: `/silencio 22-7`, `/llamadas 5`, `/llamadas off`, `/regla llamame si escribe Liliana o si entra un pago de más de 500.000`.
+
 ## En el VPS
 
 ```
 cd apps/worker && make build        # bin/mano, binario estático para Linux
 # o con Docker:
 docker build -t mano-worker apps/worker
-docker run -d --restart=always --env-file .env -p 8787:8787 mano-worker
+docker run -d --restart=always --env-file .env --network host mano-worker   # host: las llamadas usan UDP
 ```
 
 ## Comandos del bot
@@ -93,6 +119,10 @@ docker run -d --restart=always --env-file .env -p 8787:8787 mano-worker
 | `/gasto` | Gasto de IA del día, mes y última hora |
 | `/recordar Tema: dato` | Le enseñás algo del negocio |
 | `/olvidar Tema` | Borra lo que sabía de ese tema |
+| `/regla …` | Le explicás en tus palabras cuándo avisarte o llamarte; te la muestra para aprobar |
+| `/llamame` | Te llama ahora con lo pendiente |
+| `/silencio 21-8` | Horario en que no te llama (sin argumento, muestra la configuración) |
+| `/llamadas 3` | Máximo de llamadas por día; `off` / `on` para apagarlas o prenderlas |
 
 Las tarjetas de aprobación traen **Aprobar**, **Descartar** y **No me avises más de este remitente**, que crea una regla: ese remitente deja de gastar IA.
 
@@ -105,4 +135,4 @@ pnpm typecheck                # panel
 
 ## Próximo (Fase 1)
 
-Embeddings en `memory_chunks`, WhatsApp Cloud API, login en el panel con Supabase Auth, cifrado de tokens por tenant y llamadas proactivas.
+Embeddings en `memory_chunks`, login en el panel con Supabase Auth, cifrado de tokens por tenant, notas de voz para lo importante y recepcionista de voz para clientes.

@@ -25,12 +25,19 @@ type EventSink interface {
 	OnEvent(ctx context.Context, ev core.Event) error
 }
 
+// CallHandler recibe los eventos de llamadas (voice.Caller). Puede ser nil si la voz está apagada.
+type CallHandler interface {
+	OnCallEvent(ctx context.Context, ev CallEvent)
+	OnCallStatus(ctx context.Context, callID, status string)
+}
+
 type Webhook struct {
 	Client      *Client
 	Store       *store.Store
 	Owner       *owner.Service
 	OwnerChan   *OwnerChannel
 	Sink        EventSink
+	Calls       CallHandler
 	STT         *stt.Client
 	AppSecret   string
 	VerifyToken string
@@ -122,8 +129,24 @@ type Value struct {
 			Name string `json:"name"`
 		} `json:"profile"`
 	} `json:"contacts"`
-	Messages []Inbound `json:"messages"`
-	Statuses []Status  `json:"statuses"`
+	Messages []Inbound   `json:"messages"`
+	Statuses []Status    `json:"statuses"`
+	Calls    []CallEvent `json:"calls"`
+}
+
+// CallEvent llega en el campo "calls": connect (con SDP) o terminate (con duración).
+type CallEvent struct {
+	ID        string       `json:"id"`
+	From      string       `json:"from"`
+	To        string       `json:"to"`
+	Event     string       `json:"event"`     // connect | terminate
+	Direction string       `json:"direction"` // BUSINESS_INITIATED | USER_INITIATED
+	Timestamp string       `json:"timestamp"`
+	Session   *CallSession `json:"session"`
+	Status    string       `json:"status"` // terminate: COMPLETED | FAILED
+	StartTime string       `json:"start_time"`
+	EndTime   string       `json:"end_time"`
+	Duration  int          `json:"duration"`
 }
 
 type Media struct {
@@ -148,6 +171,7 @@ type Inbound struct {
 		ListReply *struct {
 			ID string `json:"id"`
 		} `json:"list_reply"`
+		CallPermissionReply *CallPermissionReply `json:"call_permission_reply"`
 	} `json:"interactive"`
 	Button *struct {
 		Payload string `json:"payload"`
@@ -159,8 +183,16 @@ type Inbound struct {
 	Video    *Media `json:"video"`
 }
 
+// CallPermissionReply es la respuesta del usuario al pedido de permiso de llamada.
+type CallPermissionReply struct {
+	Response            string `json:"response"` // accept | reject
+	IsPermanent         bool   `json:"is_permanent"`
+	ExpirationTimestamp string `json:"expiration_timestamp"`
+}
+
 type Status struct {
 	ID      string `json:"id"`
+	Type    string `json:"type"` // "call" en los estados de llamadas
 	Status  string `json:"status"`
 	Pricing *struct {
 		Billable *bool  `json:"billable"`
@@ -225,7 +257,14 @@ func (w *Webhook) process(p Payload) {
 				continue // otro número: el tenant se resuelve por el canal, nunca por el usuario
 			}
 			for _, s := range v.Statuses {
+				if s.Type == "call" || strings.HasPrefix(s.ID, "wacid.") {
+					w.callStatus(ctx, s)
+					continue
+				}
 				w.status(ctx, s)
+			}
+			for _, c := range v.Calls {
+				w.call(ctx, c)
 			}
 			names := map[string]string{}
 			for _, c := range v.Contacts {
@@ -283,8 +322,63 @@ func (w *Webhook) message(ctx context.Context, m Inbound, name string) {
 	w.fromCustomer(ctx, m, name)
 }
 
+// fresh dedupea por clave en processed_events (Meta reintenta los webhooks).
+func (w *Webhook) fresh(ctx context.Context, key string) bool {
+	ok, err := w.Store.MarkProcessed(ctx, key)
+	if err != nil {
+		slog.Error("whatsapp dedupe", "err", err)
+	}
+	return ok
+}
+
+func (w *Webhook) callStatus(ctx context.Context, s Status) {
+	if w.Calls == nil || !w.fresh(ctx, "callst:"+s.ID+":"+s.Status) {
+		return
+	}
+	w.Calls.OnCallStatus(ctx, s.ID, s.Status)
+}
+
+func (w *Webhook) call(ctx context.Context, c CallEvent) {
+	if w.Calls == nil || !w.fresh(ctx, "call:"+c.ID+":"+c.Event) {
+		return
+	}
+	w.Calls.OnCallEvent(ctx, c)
+}
+
+// permissionReply guarda el permiso de llamada que dio (o negó) el dueño.
+func (w *Webhook) permissionReply(ctx context.Context, from string, r *CallPermissionReply) {
+	kind := "none"
+	var until *time.Time
+	if r.Response == "accept" {
+		kind = "temporary"
+		if r.IsPermanent {
+			kind = "permanent"
+		} else if ts, err := strconv.ParseInt(r.ExpirationTimestamp, 10, 64); err == nil {
+			t := time.Unix(ts, 0)
+			until = &t
+		}
+	}
+	if err := w.Store.SetCallPermission(ctx, from, kind, until); err != nil {
+		slog.Error("whatsapp permiso de llamada", "err", err)
+	}
+	if from != w.OwnerPhone {
+		return
+	}
+	msg := "Listo: cuando algo sea crítico, te llamo."
+	if kind == "temporary" {
+		msg = "Listo: te puedo llamar por 7 días. Si querés que sea siempre, dame el permiso permanente."
+	} else if kind == "none" {
+		msg = "Entendido, no te llamo. Te aviso por mensaje."
+	}
+	_ = w.OwnerChan.Send(ctx, msg)
+}
+
 func (w *Webhook) fromOwner(ctx context.Context, m Inbound) {
 	ch, svc := w.OwnerChan, w.Owner
+	if m.Interactive != nil && m.Interactive.CallPermissionReply != nil {
+		w.permissionReply(ctx, m.From, m.Interactive.CallPermissionReply)
+		return
+	}
 	switch {
 	case m.ButtonID() != "":
 		if !svc.HandleButton(ctx, ch, m.ButtonID(), "whatsapp:"+m.From) {

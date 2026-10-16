@@ -94,3 +94,22 @@ func (m *Models) Complete(ctx context.Context, want core.Tier, req core.Request,
 	_ = m.store.RecordUsage(ctx, r, o.TaskID)
 	return r, nil
 }
+
+// AuthorizeVoice pasa una llamada de voz por el gobernador antes de marcar. estUSD es el peor caso (llamada al máximo).
+func (m *Models) AuthorizeVoice(ctx context.Context, estUSD float64, critical bool) error {
+	sp, caps, err := m.Status(ctx)
+	if err != nil {
+		return err
+	}
+	d := core.Decide(core.Voice, critical, estUSD, sp, caps)
+	m.notify(d)
+	if !d.OK {
+		return &Blocked{d.Reason}
+	}
+	return nil
+}
+
+// RecordVoice registra en usage lo que costó la voz de una llamada.
+func (m *Models) RecordVoice(ctx context.Context, model string, in, out int, costUSD float64) error {
+	return m.store.RecordUsage(ctx, core.Result{Tier: core.Voice, Model: model, InputTokens: in, OutputTokens: out, CostUSD: costUSD}, "")
+}

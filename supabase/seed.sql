@@ -6,6 +6,10 @@ on conflict do nothing;
 insert into budgets (tenant_id) values ('00000000-0000-0000-0000-000000000001')
 on conflict do nothing;
 
+-- Llamadas: solo lo crítico, de 8 a 21, hasta 3 por día
+insert into call_policy (tenant_id) values ('00000000-0000-0000-0000-000000000001')
+on conflict do nothing;
+
 insert into missions (tenant_id, area, goal, autonomy) values
   ('00000000-0000-0000-0000-000000000001', 'inbox',  'Limpiame el mail y mostrame solo lo que necesita mi decisión', 1),
   ('00000000-0000-0000-0000-000000000001', 'agenda', 'Avisame de choques y reuniones del día', 1);

@@ -21,7 +21,16 @@ type RuleOutcome struct {
 	Urgency     Urgency `json:"urgency"`
 	NeedsAction bool    `json:"needsAction,omitempty"`
 	Note        string  `json:"note,omitempty"`
+	// Notify fuerza cómo se avisa: "call" llama al dueño aunque no sea crítico, "silent" no avisa al momento.
+	Notify string `json:"notify,omitempty"`
+	// IgnoreQuiet deja llamar dentro del horario de silencio ("llamame aunque sea de noche").
+	IgnoreQuiet bool `json:"ignoreQuiet,omitempty"`
 }
+
+const (
+	NotifyCall   = "call"
+	NotifySilent = "silent"
+)
 
 type Rule struct {
 	ID       string
@@ -49,6 +58,14 @@ func ParseRule(id string, priority int, match, outcome []byte) (Rule, error) {
 	case Critical, High, Normal, Ignore:
 	default:
 		return r, fmt.Errorf("urgencia inválida %q", r.Outcome.Urgency)
+	}
+	switch r.Outcome.Notify {
+	case "", NotifyCall, NotifySilent:
+	default:
+		return r, fmt.Errorf("notify inválido %q", r.Outcome.Notify)
+	}
+	if r.Outcome.Notify == NotifyCall && r.Outcome.Urgency == Ignore {
+		return r, fmt.Errorf("una regla que ignora no puede llamar")
 	}
 	m := r.Match
 	if m.Source == "" && m.Kind == "" && len(m.SenderIncludesAny) == 0 && len(m.TextIncludesAny) == 0 && m.AmountGte == nil {

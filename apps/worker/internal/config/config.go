@@ -27,6 +27,15 @@ type Config struct {
 
 	STTBaseURL, STTKey, STTModel string
 
+	// Voz: Mano llama al dueño por WhatsApp y habla con un modelo de voz en tiempo real.
+	VoiceEnabled                                bool
+	RealtimeBaseURL, RealtimeKey, RealtimeModel string
+	RealtimeVoice, RealtimeTranscribe           string
+	RealtimePriceIn, RealtimePriceOut           float64
+	CallMax, CallRing                           time.Duration
+	WACallUSDPerMin                             float64
+	WATemplateCallPermission, STUNURL           string
+
 	CapDayUSD, CapMonthUSD float64
 
 	GoogleClientID, GoogleClientSecret, GoogleRefreshToken string
@@ -195,6 +204,24 @@ func Load() (Config, error) {
 	default:
 		missing = append(missing, "OWNER_CHANNEL: telegram o whatsapp")
 	}
+	c.VoiceEnabled = truthy(os.Getenv("VOICE_ENABLED"))
+	if c.VoiceEnabled {
+		c.RealtimeBaseURL = def("REALTIME_BASE_URL", "https://api.openai.com/v1")
+		c.RealtimeKey = str("REALTIME_API_KEY", true)
+		c.RealtimeModel = def("REALTIME_MODEL", "gpt-realtime-2.1")
+		c.RealtimeVoice = def("REALTIME_VOICE", "marin")
+		c.RealtimeTranscribe = def("REALTIME_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
+		c.RealtimePriceIn = num("REALTIME_PRICE_IN", 0, "USD por millón de tokens de audio de entrada (tarifa vigente)")
+		c.RealtimePriceOut = num("REALTIME_PRICE_OUT", 0, "USD por millón de tokens de audio de salida (tarifa vigente)")
+		c.CallMax = time.Duration(num("CALL_MAX_SECONDS", 300, "segundos")) * time.Second
+		c.CallRing = time.Duration(num("CALL_RING_SECONDS", 45, "segundos")) * time.Second
+		c.WACallUSDPerMin = num("WA_CALL_USD_PER_MIN", 0.0101, "USD por minuto de llamada saliente")
+		c.WATemplateCallPermission = str("WA_TEMPLATE_CALL_PERMISSION", false)
+		c.STUNURL = def("STUN_URL", "stun:stun.l.google.com:19302")
+		if !c.WhatsAppEnabled() {
+			missing = append(missing, "VOICE_ENABLED: las llamadas usan WhatsApp, configurá WA_PHONE_NUMBER_ID, WA_ACCESS_TOKEN y WA_APP_SECRET")
+		}
+	}
 	if c.GmailEnabled() && c.GmailPushToken == "" {
 		missing = append(missing, "GMAIL_PUSH_TOKEN: obligatorio si conectás Gmail")
 	}
@@ -202,6 +229,14 @@ func Load() (Config, error) {
 		return c, fmt.Errorf("falta configuración en .env:\n  · %s", strings.Join(missing, "\n  · "))
 	}
 	return c, nil
+}
+
+func truthy(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "si", "sí", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // digits deja solo números: "+54 9 223 123-4567" → "5492231234567" (formato wa_id).

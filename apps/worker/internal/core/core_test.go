@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func mustRule(t *testing.T, id string, prio int, match, outcome string) Rule {
@@ -183,5 +184,64 @@ func TestParseJSON(t *testing.T) {
 	}
 	if Norm("Cambió el CBU") != "cambio el cbu" {
 		t.Fatal(Norm("Cambió el CBU"))
+	}
+}
+
+func TestRuleNotify(t *testing.T) {
+	r := mustRule(t, "lili", 5, `{"senderIncludesAny":["liliana"]}`, `{"urgency":"high","notify":"call","ignoreQuiet":true}`)
+	tr := RunTriage(context.Background(), Event{Source: "whatsapp", Sender: "Liliana (+54911)"}, []Rule{r}, nil)
+	if tr.Notify != NotifyCall || !tr.IgnoreQuiet {
+		t.Fatalf("la regla tiene que pasar notify e ignoreQuiet: %+v", tr)
+	}
+	for _, o := range []string{`{"urgency":"high","notify":"gritar"}`, `{"urgency":"ignore","notify":"call"}`} {
+		if _, err := ParseRule("x", 1, []byte(`{"source":"gmail"}`), []byte(o)); err == nil {
+			t.Errorf("debería rechazar %s", o)
+		}
+	}
+}
+
+func TestShouldCall(t *testing.T) {
+	p := DefaultCallPolicy()
+	day := time.Date(2026, 10, 15, 14, 0, 0, 0, time.UTC)
+	night := time.Date(2026, 10, 15, 23, 30, 0, 0, time.UTC)
+	early := time.Date(2026, 10, 16, 7, 59, 0, 0, time.UTC)
+	cases := []struct {
+		name          string
+		r             CallRequest
+		now           time.Time
+		today, missed int
+		want          bool
+	}{
+		{"crítico de día", CallRequest{Urgency: Critical}, day, 0, 0, true},
+		{"alto no llama", CallRequest{Urgency: High}, day, 0, 0, false},
+		{"regla fuerza", CallRequest{Urgency: High, Forced: true}, day, 0, 0, true},
+		{"silencio de noche", CallRequest{Urgency: Critical}, night, 0, 0, false},
+		{"silencio cruza medianoche", CallRequest{Urgency: Critical}, early, 0, 0, false},
+		{"regla ignora silencio", CallRequest{Urgency: Critical, IgnoreQuiet: true}, night, 0, 0, true},
+		{"tope diario", CallRequest{Urgency: Critical}, day, 3, 0, false},
+		{"dos sin atender", CallRequest{Urgency: Critical}, day, 0, 2, false},
+		{"el dueño lo pide", CallRequest{OwnerAsked: true}, night, 9, 9, true},
+	}
+	for _, c := range cases {
+		if got := ShouldCall(p, c.r, c.now, c.today, c.missed); got.Call != c.want {
+			t.Errorf("%s: got %v (%s) want %v", c.name, got.Call, got.Reason, c.want)
+		}
+	}
+	off := p
+	off.Enabled = false
+	if ShouldCall(off, CallRequest{Urgency: Critical}, day, 0, 0).Call {
+		t.Error("apagado no llama")
+	}
+}
+
+func TestParseQuiet(t *testing.T) {
+	for in, want := range map[string]string{"21-8": "21:00-08:00", "22:30 a 7": "22:30-07:00", "23hs-6hs": "23:00-06:00"} {
+		a, b, err := ParseQuiet(in)
+		if err != nil || a+"-"+b != want {
+			t.Errorf("%q: got %s-%s %v want %s", in, a, b, err, want)
+		}
+	}
+	if _, _, err := ParseQuiet("25-8"); err == nil {
+		t.Error("25 no es una hora")
 	}
 }
