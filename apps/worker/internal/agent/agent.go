@@ -118,7 +118,11 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 	if err != nil {
 		return err
 	}
-	t := core.RunTriage(ctx, ev, rules, a.models.CheapIfAllowed(ctx, false))
+	// Antifraude primero (sin IA): una cuenta bancaria distinta a la de siempre es crítica, diga lo que diga el texto.
+	t, freshAccounts, fraud := a.checkAccounts(ctx, ev)
+	if !fraud {
+		t = core.RunTriage(ctx, ev, rules, a.models.CheapIfAllowed(ctx, false))
+	}
 	if t.RuleID != "" {
 		_ = a.store.BumpRule(ctx, t.RuleID)
 	}
@@ -145,6 +149,9 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		}
 	}
 
+	if fraud {
+		a.proposeTrust(ctx, ev, freshAccounts)
+	}
 	approvalID := ""
 	if core.NeedsTop(t) {
 		switch {
@@ -381,6 +388,8 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		return a.refund(ctx, *ap, by)
 	case "mp.payout":
 		return a.payout(ctx, *ap, by)
+	case "account.trust":
+		return a.trustAccount(ctx, *ap, by)
 	default:
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", nil)
 		return "Hecho."

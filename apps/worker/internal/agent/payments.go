@@ -29,7 +29,8 @@ const ChargeRemindAfter = 72 * time.Hour
 func (a *Agent) SetPayments(p Payments, notifyURL string) { a.pay, a.payNotify = p, notifyURL }
 
 // moneyActions mueven plata: se aprueban solo con el botón, nunca por voz.
-var moneyActions = map[string]bool{"mp.refund": true, "mp.payout": true}
+// Confiar en una cuenta nueva también: es la puerta de una estafa.
+var moneyActions = map[string]bool{"mp.refund": true, "mp.payout": true, "account.trust": true}
 
 func chargeMessage(name, desc string, amount float64, url string) string {
 	hi := "Hola"
