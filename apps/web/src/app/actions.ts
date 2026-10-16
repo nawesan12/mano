@@ -1,6 +1,7 @@
 'use server';
 
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
+import { blocked, fail, succeed } from '@/lib/throttle';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db, tenantId } from '@/lib/db';
@@ -14,7 +15,15 @@ async function requireSession() {
 export async function login(_: string | null, form: FormData): Promise<string | null> {
   const secret = process.env.PANEL_PASSWORD;
   if (!secret) return 'Falta PANEL_PASSWORD en el .env del panel.';
-  if (!samePassword(String(form.get('password') ?? ''), secret)) return 'Contraseña incorrecta.';
+  const h = await headers();
+  const ip = (h.get('x-forwarded-for') ?? '').split(',')[0]?.trim() || h.get('x-real-ip') || 'local';
+  if (blocked(ip)) return 'Demasiados intentos. Esperá 15 minutos.';
+  if (!samePassword(String(form.get('password') ?? ''), secret)) {
+    fail(ip);
+    await new Promise((r) => setTimeout(r, 800)); // cada intento fallido cuesta tiempo
+    return 'Contraseña incorrecta.';
+  }
+  succeed(ip);
   const jar = await cookies();
   jar.set(COOKIE, await issue(secret), { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: MAX_AGE, path: '/' });
   redirect('/');
