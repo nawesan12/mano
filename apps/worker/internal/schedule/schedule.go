@@ -51,3 +51,19 @@ func run(ctx context.Context, name string, fn func(context.Context)) {
 	defer cancel()
 	fn(c)
 }
+
+// Every corre fn cada interval (la primera vez después de un interval) hasta que se cancele el contexto.
+func Every(ctx context.Context, name string, interval time.Duration, fn func(context.Context)) {
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				run(ctx, name, fn)
+			}
+		}
+	}()
+}

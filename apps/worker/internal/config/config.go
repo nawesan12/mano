@@ -44,6 +44,7 @@ type Config struct {
 	Port     string
 	Location *time.Location
 	BriefAt  string // "07:00"
+	CloseAt  string // "19:00"; vacío = sin cierre del día
 }
 
 func (c Config) TelegramEnabled() bool { return c.TelegramToken != "" }
@@ -168,12 +169,16 @@ func Load() (Config, error) {
 
 		Port:    def("PORT", "8787"),
 		BriefAt: def("BRIEF_AT", "07:00"),
+		CloseAt: str("BRIEF_CLOSE_AT", false),
 	}
 	if c.TenantID != "" && !uuidRe.MatchString(c.TenantID) {
 		missing = append(missing, "MANO_TENANT_ID: tiene que ser un UUID")
 	}
 	if !hhmmRe.MatchString(c.BriefAt) {
 		missing = append(missing, "BRIEF_AT: formato HH:MM")
+	}
+	if c.CloseAt != "" && !hhmmRe.MatchString(c.CloseAt) {
+		missing = append(missing, "BRIEF_CLOSE_AT: formato HH:MM, o vacío para no mandar cierre")
 	}
 	loc, err := time.LoadLocation(def("TZ", "America/Argentina/Buenos_Aires"))
 	if err != nil {

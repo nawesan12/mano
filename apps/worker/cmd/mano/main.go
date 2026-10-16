@@ -162,6 +162,29 @@ func main() {
 		}
 	})
 
+	if cfg.CloseAt != "" {
+		schedule.Daily(ctx, "cierre", cfg.CloseAt, cfg.Location, func(c context.Context) {
+			text, err := ag.Closing(c)
+			if err == nil {
+				err = notifier.Send(c, text)
+			}
+			if err != nil {
+				slog.Error("cierre", "err", err)
+			}
+		})
+	}
+
+	// Seguimiento: lo que espera tu ok se recuerda una vez y vence a las 72 h.
+	schedule.Every(ctx, "seguimiento", 30*time.Minute, func(c context.Context) {
+		text, err := ag.FollowUp(c, time.Now())
+		if err == nil && text != "" {
+			err = notifier.Send(c, text)
+		}
+		if err != nil {
+			slog.Error("seguimiento", "err", err)
+		}
+	})
+
 	if gm != nil && cfg.GmailTopic != "" {
 		renew := func(c context.Context) {
 			if _, exp, err := gm.Watch(c); err != nil {
