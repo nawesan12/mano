@@ -430,3 +430,30 @@ func TestParseWhenAndFreeSlots(t *testing.T) {
 		t.Fatal("día libre: un solo hueco")
 	}
 }
+
+func TestSenderMatching(t *testing.T) {
+	cases := []struct {
+		sender, needle string
+		want           bool
+	}{
+		{"Juan <juan@cliente.com>", "juan@cliente.com", true},
+		{"Juan <juan@cliente.com.evil.io>", "juan@cliente.com", false}, // nunca por pedazos
+		{"Spam <a@b.com>", "<a>", false},                               // el criterio envenenado del hallazgo 3 no pega
+		{"Pagos <pagos@corralon.com>", "@corralon.com", true},
+		{"Pagos <pagos@corralonx.com>", "@corralon.com", false},
+		{"Marta (+5491111111111)", "5491111111111", true},
+		{"Marta (+5491111111111)", "5492222222222", false},
+		{"notifications@github.com", "notifications@", true}, // los de arranque siguen andando
+		{"Liliana <x@y.com>", "liliana", true},
+	}
+	for _, c := range cases {
+		if got := senderMatches(c.sender, c.needle); got != c.want {
+			t.Errorf("%q / %q: %v", c.sender, c.needle, got)
+		}
+	}
+	for in, want := range map[string]string{"Juan <JUAN@x.com>": "juan@x.com", "a@x.com, b@y.com": "", "x\r\nBcc: z@z.com": "", "sin mail": ""} {
+		if got := MailAddress(in); got != want {
+			t.Errorf("MailAddress(%q) = %q", in, got)
+		}
+	}
+}

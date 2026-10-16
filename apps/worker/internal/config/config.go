@@ -244,6 +244,9 @@ func Load() (Config, error) {
 	if !c.TelegramEnabled() && !c.WhatsAppEnabled() {
 		missing = append(missing, "canal del dueño: configurá TELEGRAM_BOT_TOKEN o WhatsApp (WA_PHONE_NUMBER_ID, WA_ACCESS_TOKEN, WA_APP_SECRET)")
 	}
+	if strings.HasPrefix(c.OwnerChatID, "-") {
+		missing = append(missing, "TELEGRAM_OWNER_CHAT_ID: tiene que ser tu chat privado con el bot, no un grupo (en un grupo cualquiera podría aprobar)")
+	}
 	if c.WhatsAppEnabled() {
 		if c.WAVerifyToken == "" {
 			missing = append(missing, "WA_VERIFY_TOKEN: obligatorio para registrar el webhook")

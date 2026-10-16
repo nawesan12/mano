@@ -5,18 +5,19 @@ import { blocked, fail, succeed } from '@/lib/throttle';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db, tenantId } from '@/lib/db';
-import { COOKIE, MAX_AGE, issue, samePassword, verify } from '@/lib/session';
+import { COOKIE, MAX_AGE, issue, samePassword, sessionKey, verify } from '@/lib/session';
 
 async function requireSession() {
   const jar = await cookies();
-  if (!(await verify(process.env.PANEL_PASSWORD, jar.get(COOKIE)?.value))) redirect('/login');
+  if (!(await verify(sessionKey(), jar.get(COOKIE)?.value))) redirect('/login');
 }
 
 export async function login(_: string | null, form: FormData): Promise<string | null> {
   const secret = process.env.PANEL_PASSWORD;
   if (!secret) return 'Falta PANEL_PASSWORD en el .env del panel.';
   const h = await headers();
-  const ip = (h.get('x-forwarded-for') ?? '').split(',')[0]?.trim() || h.get('x-real-ip') || 'local';
+  // x-real-ip lo pone la plataforma (Vercel, nginx); x-forwarded-for lo puede falsificar el cliente si no hay proxy
+  const ip = h.get('x-real-ip') || (h.get('x-forwarded-for') ?? '').split(',')[0]?.trim() || 'local';
   if (blocked(ip)) return 'Demasiados intentos. Esperá 15 minutos.';
   if (!samePassword(String(form.get('password') ?? ''), secret)) {
     fail(ip);
@@ -25,7 +26,7 @@ export async function login(_: string | null, form: FormData): Promise<string | 
   }
   succeed(ip);
   const jar = await cookies();
-  jar.set(COOKIE, await issue(secret), { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: MAX_AGE, path: '/' });
+  jar.set(COOKIE, await issue(sessionKey() ?? secret), { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: MAX_AGE, path: '/' });
   redirect('/');
 }
 

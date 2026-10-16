@@ -13,7 +13,7 @@ import (
 func senderKey(ev core.Event) string {
 	switch ev.Source {
 	case "gmail":
-		if m := strings.ToLower(emailOf("", ev.Sender)); strings.Contains(m, "@") {
+		if m := strings.ToLower(core.MailAddress(ev.Sender)); strings.Contains(m, "@") {
 			return "mail:" + m
 		}
 	case "whatsapp":

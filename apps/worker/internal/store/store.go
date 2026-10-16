@@ -124,7 +124,7 @@ func (s *Store) MarkBriefed(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	q := url.Values{"id": {"in.(" + strings.Join(ids, ",") + ")"}}
+	q := s.q("id", "in.("+strings.Join(ids, ",")+")")
 	return s.do(ctx, http.MethodPatch, "events", q, map[string]any{"briefed_at": time.Now().UTC().Format(time.RFC3339)}, "", nil)
 }
 
@@ -270,6 +270,7 @@ type Action struct {
 	ThreadID  string  `json:"threadId,omitempty"`
 	MessageID string  `json:"messageId,omitempty"`
 	To        string  `json:"to,omitempty"`
+	From      string  `json:"from,omitempty"` // quién escribió (para silenciarlo); puede no ser a quien se responde
 	Subject   string  `json:"subject,omitempty"`
 	Body      string  `json:"body,omitempty"`
 	Text      string  `json:"text,omitempty"`
@@ -353,7 +354,12 @@ func (s *Store) ForgetTopic(ctx context.Context, topic string) (int, error) {
 	var out []struct {
 		ID string `json:"id"`
 	}
-	err := s.do(ctx, http.MethodDelete, "memory_facts", s.q("topic", "ilike."+topic, "select", "id"), nil, "return=representation", &out)
+	// ilike sin comodines: "/olvidar *" no borra toda la memoria
+	safe := strings.NewReplacer("*", "", "%", "", "_", "").Replace(strings.TrimSpace(topic))
+	if safe == "" {
+		return 0, nil
+	}
+	err := s.do(ctx, http.MethodDelete, "memory_facts", s.q("topic", "ilike."+safe, "select", "id"), nil, "return=representation", &out)
 	return len(out), err
 }
 
@@ -389,12 +395,16 @@ func (s *Store) MarkProcessed(ctx context.Context, messageID string) (bool, erro
 }
 
 // TouchContact actualiza la última vez que el contacto escribió: abre la ventana de 24 h.
+// El nombre de perfil solo se usa si el contacto no tenía uno: un tercero no puede renombrarse para parecerse a otro.
 func (s *Store) TouchContact(ctx context.Context, phone, name string, isOwner bool, at time.Time) error {
 	row := map[string]any{"tenant_id": s.tenant, "phone": phone, "is_owner": isOwner, "last_inbound_at": at.UTC().Format(time.RFC3339)}
-	if name != "" {
-		row["name"] = name
+	if err := s.do(ctx, http.MethodPost, "wa_contacts", url.Values{"on_conflict": {"tenant_id,phone"}}, []any{row}, "resolution=merge-duplicates", nil); err != nil {
+		return err
 	}
-	return s.do(ctx, http.MethodPost, "wa_contacts", url.Values{"on_conflict": {"tenant_id,phone"}}, []any{row}, "resolution=merge-duplicates", nil)
+	if name == "" {
+		return nil
+	}
+	return s.do(ctx, http.MethodPatch, "wa_contacts", s.q("phone", "eq."+phone, "name", "is.null"), map[string]any{"name": core.Truncate(name, 80)}, "", nil)
 }
 
 // LastInbound devuelve cuándo escribió por última vez el contacto (cero si nunca).

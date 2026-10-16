@@ -24,14 +24,16 @@ func (a *Agent) StartAway(ctx context.Context, untilText, reply string) (string,
 	if err != nil {
 		return "No lo activé: " + err.Error() + ".", nil
 	}
-	if reply = strings.TrimSpace(reply); reply == "" {
+	reply = core.Truncate(strings.TrimSpace(reply), 600)
+	if reply == "" {
 		who := a.store.TenantName(ctx)
 		if who == "" {
 			who = "el equipo"
 		}
 		reply = fmt.Sprintf("Hola, gracias por escribir. %s no está disponible hasta el %s. Te respondemos a la vuelta; si es urgente, contanos y le avisamos.", who, longDate(until))
 	}
-	if err := a.store.StartAway(ctx, until, core.Truncate(reply, 600)); err != nil {
+	reply = core.Truncate(reply, 600) // el mismo texto en la base y en la tarjeta: se aprueba solo si coinciden
+	if err := a.store.StartAway(ctx, until, reply); err != nil {
 		return "No pude activarlo: " + err.Error(), nil
 	}
 	msg := fmt.Sprintf("Listo, quedás ausente hasta el %s. Solo te llamo por lo crítico; lo demás te espera en el resumen. Para volver antes: /volvi", longDate(until))
@@ -49,8 +51,12 @@ func (a *Agent) StartAway(ctx context.Context, untilText, reply string) (string,
 }
 
 func (a *Agent) approveAwayReply(ctx context.Context, ap store.Approval, by string) string {
-	if err := a.store.ApproveAwayReply(ctx); err != nil {
+	ok, err := a.store.ApproveAwayReply(ctx, ap.Action.Text)
+	if err != nil {
 		return "No pude guardarlo: " + err.Error()
+	}
+	if !ok {
+		return "Ese mensaje ya no es el de tu ausencia actual (lo cambiaste o ya volviste). No lo activé."
 	}
 	_ = a.store.Log(ctx, store.LogEntry{Area: "Ausencia", Tool: "away.reply", Summary: "Aprobaste la respuesta de ausencia", Via: "code", ApprovedBy: by})
 	return "Listo: a cada cliente que escriba le respondo eso, una sola vez."

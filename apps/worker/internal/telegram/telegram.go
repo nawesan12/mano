@@ -212,7 +212,7 @@ func (b *Bot) handle(ctx context.Context, u Update) {
 	}()
 
 	if cb := u.Callback; cb != nil && cb.Message != nil {
-		if !b.isOwner(cb.Message.Chat.ID) {
+		if !b.isOwner(cb.Message.Chat.ID) || !b.isOwner(cb.From.ID) {
 			_ = b.c.call(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": cb.ID, "text": "No autorizado"}, nil)
 			return
 		}
@@ -228,7 +228,7 @@ func (b *Bot) handle(ctx context.Context, u Update) {
 		return
 	}
 	chat := strconv.FormatInt(msg.Chat.ID, 10)
-	if !b.isOwner(msg.Chat.ID) {
+	if !b.isOwner(msg.Chat.ID) || !b.isOwner(msg.From.ID) {
 		if cmd, _, ok := owner.ParseCommand(msg.Text); ok && cmd == "start" {
 			_ = b.c.SendMessage(ctx, chat, "Tu chat id es "+chat+". Ponelo en TELEGRAM_OWNER_CHAT_ID y reiniciá el worker.", nil)
 		}

@@ -213,28 +213,36 @@ func (c *Client) ToEvent(ctx context.Context, id, tenantID string) (core.Event, 
 		received = time.UnixMilli(ms)
 	}
 	from := m.Payload.header("From")
-	replyTo := m.Payload.header("Reply-To")
+	fromAddr := core.MailAddress(from)
+	replyTo := core.MailAddress(m.Payload.header("Reply-To"))
 	if replyTo == "" {
-		replyTo = from
+		replyTo = fromAddr
 	}
 	return core.Event{
 		TenantID: tenantID, Source: "gmail", ExternalID: id, Kind: "email",
 		Sender: from, Subject: m.Payload.header("Subject"), Body: body, ReceivedAt: received,
-		Payload: map[string]any{"threadId": m.ThreadID, "messageId": m.Payload.header("Message-ID"), "replyTo": replyTo},
+		Payload: map[string]any{"threadId": m.ThreadID, "messageId": m.Payload.header("Message-ID"), "replyTo": replyTo, "from": fromAddr},
 	}, nil
 }
 
+// headerSafe saca saltos de línea: un encabezado de un tercero no puede agregar otros (Bcc, etc.).
+func headerSafe(s string) string { return strings.NewReplacer("\r", "", "\n", "").Replace(s) }
+
 // Reply responde en el mismo hilo. Solo se llama después de una aprobación.
 func (c *Client) Reply(ctx context.Context, a store.Action) error {
+	to := core.MailAddress(a.To)
+	if to == "" {
+		return fmt.Errorf("el destinatario %q no es una dirección válida", a.To)
+	}
 	subject := a.Subject
 	if !strings.HasPrefix(strings.ToLower(subject), "re:") {
 		subject = "Re: " + subject
 	}
 	raw := strings.Join([]string{
-		"To: " + a.To,
+		"To: " + to,
 		"Subject: =?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(subject)) + "?=",
-		"In-Reply-To: " + a.MessageID,
-		"References: " + a.MessageID,
+		"In-Reply-To: " + headerSafe(a.MessageID),
+		"References: " + headerSafe(a.MessageID),
 		`Content-Type: text/plain; charset="UTF-8"`,
 		"",
 		a.Body,

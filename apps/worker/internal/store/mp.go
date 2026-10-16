@@ -75,6 +75,11 @@ func (s *Store) InsertPayout(ctx context.Context, p Payout) error {
 		"destination": p.Destination, "amount": p.Amount, "reason": p.Reason, "status": p.Status}, "", nil)
 }
 
+// SetPayoutSent completa la fila con lo que devolvió Mercado Pago.
+func (s *Store) SetPayoutSent(ctx context.Context, id, payoutID, status string) error {
+	return s.do(ctx, http.MethodPatch, "mp_payouts", s.q("id", "eq."+id), map[string]any{"payout_id": payoutID, "status": status, "updated_at": time.Now().UTC().Format(time.RFC3339)}, "", nil)
+}
+
 func (s *Store) SetPayoutStatus(ctx context.Context, id, status string) error {
 	return s.do(ctx, http.MethodPatch, "mp_payouts", s.q("id", "eq."+id), map[string]any{"status": status, "updated_at": time.Now().UTC().Format(time.RFC3339)}, "", nil)
 }
