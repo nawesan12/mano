@@ -21,6 +21,7 @@ import (
 	"github.com/nawesan12/mano/worker/internal/config"
 	"github.com/nawesan12/mano/worker/internal/core"
 	"github.com/nawesan12/mano/worker/internal/gmail"
+	"github.com/nawesan12/mano/worker/internal/mercadopago"
 	"github.com/nawesan12/mano/worker/internal/owner"
 	"github.com/nawesan12/mano/worker/internal/schedule"
 	"github.com/nawesan12/mano/worker/internal/server"
@@ -146,9 +147,14 @@ func main() {
 		}
 		srvCfg.WhatsApp = wh
 	}
+	srvCfg.Hooks = map[string]http.Handler{}
+	if cfg.MPAccessToken != "" {
+		srvCfg.Hooks["/webhooks/mercadopago"] = &mercadopago.Webhook{Client: mercadopago.NewClient(cfg.MPAccessToken),
+			Secret: cfg.MPWebhookSecret, Sink: ag, TenantID: cfg.TenantID, Base: ctx}
+	}
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: srvCfg.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
-		slog.Info("webhooks escuchando", "port", cfg.Port, "gmail", gm != nil, "whatsapp", waClient != nil)
+		slog.Info("webhooks escuchando", "port", cfg.Port, "gmail", gm != nil, "whatsapp", waClient != nil, "mercadopago", cfg.MPAccessToken != "")
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("http", "err", err)
 			stop()

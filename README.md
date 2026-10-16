@@ -40,7 +40,8 @@ apps/worker/            Go
   internal/voice        Mano te llama: puente WebRTC, sesión de voz, herramientas, reintentos
   internal/stt          transcripción de audios (API compatible con OpenAI)
   internal/tts          notas de voz para lo importante (API compatible con OpenAI)
-  internal/server       webhook de Gmail y /health
+  internal/server       webhooks de Gmail y otros, /health
+  internal/mercadopago  pagos: webhook firmado → evento
   internal/schedule     tareas diarias por hora local
 apps/web                panel Next.js (estado, pendientes, registro, gasto)
 supabase                migración con RLS + seed
@@ -77,6 +78,21 @@ Puesta en marcha:
    `Aviso de Mano: {{1}}. Respondé este mensaje para ver el detalle.`
    La variable no puede ir ni al principio ni al final del cuerpo. Mantenela seca y transaccional: si suena promocional, Meta la recategoriza como marketing y cuesta más.
 4. Correr `supabase/migrations/0002_whatsapp.sql`.
+
+## Mercado Pago
+
+Cada pago que se resuelve entra a la cascada como un evento, igual que un mail. Las reglas de arranque (`0006_mercadopago.sql`) lo clasifican sin IA:
+
+| Pago | Urgencia | Qué pasa |
+| --- | --- | --- |
+| Contracargo | Crítica | Te llama |
+| Rechazado | Alta | Nota de voz |
+| Acreditado de $500.000 o más | Alta | Nota de voz |
+| Acreditado | Normal | Al resumen |
+
+Se cambia con `/regla`, por ejemplo: `/regla llamame si entra un pago de más de 2.000.000`.
+
+Puesta en marcha: en Mercado Pago, Tus integraciones → tu app → Webhooks. URL `https://TU-WORKER/webhooks/mercadopago`, evento **Pagos**. Copiá la clave secreta a `MP_WEBHOOK_SECRET` y el access token de producción a `MP_ACCESS_TOKEN`. La firma `x-signature` se valida siempre y los pagos se consultan a la API, nunca se confía en el cuerpo del webhook.
 
 ## Cómo te avisa
 
