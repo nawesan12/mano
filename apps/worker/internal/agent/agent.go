@@ -133,7 +133,13 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		return err
 	}
 
-	if (t.Urgency == core.Critical || t.Urgency == core.High) && t.Notify != core.NotifySilent {
+	// Ausencia: a los clientes se les responde una vez (si el dueño aprobó el texto) y lo importante espera al resumen.
+	aw := a.away(ctx)
+	if aw != nil {
+		a.awayAutoReply(ctx, aw, ev)
+	}
+	quietHigh := aw != nil && t.Urgency == core.High && t.Notify != core.NotifyCall
+	if (t.Urgency == core.Critical || t.Urgency == core.High) && t.Notify != core.NotifySilent && !quietHigh {
 		label := "Importante"
 		if t.Urgency == core.Critical {
 			label = "URGENTE"
@@ -390,6 +396,8 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		return a.payout(ctx, *ap, by)
 	case "account.trust":
 		return a.trustAccount(ctx, *ap, by)
+	case "away.reply":
+		return a.approveAwayReply(ctx, *ap, by)
 	default:
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", nil)
 		return "Hecho."

@@ -608,3 +608,57 @@ func TestFraudNewAccountIsCritical(t *testing.T) {
 		t.Fatal("confirmada, ya no alarma")
 	}
 }
+
+// Ausente: lo importante no avisa, lo crítico sí llama, cada cliente recibe una vez la respuesta aprobada,
+// y al volver llega el resumen.
+func TestAwayMode(t *testing.T) {
+	ctx := context.Background()
+	a, db, cheap, _, n, _ := setup(t)
+	wa := &fakeWA{}
+	a.wa = wa
+	fc := &fakeCaller{}
+	a.SetCaller(fc)
+	a.spawn = func(f func()) { f() }
+	db.Set("tenants", []map[string]any{{"id": tenant, "name": "Inmobiliaria Costa Azul"}})
+
+	msg, ap := a.StartAway(ctx, "3 días", "")
+	if ap == nil || !strings.Contains(msg, "quedás ausente") || !strings.Contains(ap.Detail, "Inmobiliaria Costa Azul no está disponible hasta el") {
+		t.Fatalf("%q %+v", msg, ap)
+	}
+	waEvent := func(id, phone string) core.Event {
+		return core.Event{TenantID: tenant, Source: "whatsapp", ExternalID: id, Kind: "message", Sender: "Marta", Body: "¿Tienen turno?",
+			ReceivedAt: time.Now(), Payload: map[string]any{"phone": phone}}
+	}
+	_ = a.OnEvent(ctx, waEvent("w1", "5491111111111"))
+	if len(wa.sent) != 0 {
+		t.Fatal("sin aprobar el texto, no se le escribe al cliente")
+	}
+	if len(n.sent) != 0 {
+		t.Fatalf("lo importante no avisa mientras estás ausente: %v", n.sent)
+	}
+	_ = a.OnDecision(ctx, ap.ID, Approve, "test")
+	_ = a.OnEvent(ctx, waEvent("w2", "5491111111111"))
+	_ = a.OnEvent(ctx, waEvent("w3", "5491111111111"))
+	_ = a.OnEvent(ctx, waEvent("w4", "5492222222222"))
+	if len(wa.sent) != 2 || !strings.Contains(wa.sent[0], "no está disponible") {
+		t.Fatalf("una respuesta por cliente: %v", wa.sent)
+	}
+
+	cheap.Reply = func(core.Request) string {
+		return `{"urgency":"critical","needsAction":false,"intent":"pago rechazado","summary":"Se cayó el pago grande"}`
+	}
+	_ = a.OnEvent(ctx, mail("w5", "Banco <alertas@banco.com>", "Pago rechazado"))
+	if len(fc.reqs) != 1 {
+		t.Fatal("lo crítico te llama igual")
+	}
+	if msg, _ := a.FollowUp(ctx, time.Now()); msg != "" {
+		t.Fatalf("ausente: sin recordatorios (%q)", msg)
+	}
+	back := a.EndAway(ctx)
+	if !strings.Contains(back, "1 críticas") || !strings.Contains(back, "Les respondí a 2 cliente(s)") {
+		t.Fatalf("resumen de vuelta: %q", back)
+	}
+	if a.EndAway(ctx) != "" {
+		t.Fatal("el resumen sale una vez")
+	}
+}

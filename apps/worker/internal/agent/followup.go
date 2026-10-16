@@ -19,6 +19,13 @@ func (a *Agent) FollowUp(ctx context.Context, now time.Time) (string, error) {
 	if pol.InQuiet(now.In(a.loc)) {
 		return "", nil
 	}
+	// La ausencia vence sola: al volver, el resumen de lo que pasó.
+	if aw, _ := a.store.GetAway(ctx); aw != nil && now.After(aw.Until) {
+		return a.EndAway(ctx), nil
+	}
+	if a.away(ctx) != nil {
+		return "", nil // ausente: nada de recordatorios, todo espera al resumen
+	}
 	open, err := a.store.OpenApprovals(ctx)
 	if err != nil {
 		return "", err

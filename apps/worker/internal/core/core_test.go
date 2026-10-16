@@ -261,3 +261,22 @@ func TestExtractAccounts(t *testing.T) {
 		t.Fatal(MaskAccount(got[0]))
 	}
 }
+
+func TestParseUntil(t *testing.T) {
+	ar, _ := time.LoadLocation("America/Argentina/Buenos_Aires")
+	now := time.Date(2026, 10, 15, 10, 0, 0, 0, ar) // jueves
+	for in, want := range map[string]string{
+		"el lunes": "2026-10-19", "hasta el jueves": "2026-10-22", "mañana": "2026-10-16", "3 días": "2026-10-18",
+		"20/10": "2026-10-20", "5/12": "2026-12-05", "2026-11-02": "2026-11-02",
+	} {
+		got, err := ParseUntil(in, now, ar)
+		if err != nil || got.Format("2006-01-02") != want || got.Hour() != 23 {
+			t.Errorf("%q: %v %v want %s", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"31/02", "ayer", "14/10/2026", "2027-12-01"} {
+		if _, err := ParseUntil(bad, now, ar); err == nil {
+			t.Errorf("%q debería fallar", bad)
+		}
+	}
+}
