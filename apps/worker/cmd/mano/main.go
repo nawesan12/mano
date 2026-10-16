@@ -212,6 +212,13 @@ func main() {
 		srvCfg.Hooks["/webhooks/mercadolibre"] = wh
 	}
 
+	if cfg.PanelToken != "" {
+		// El panel decide por el mismo camino que los botones. by = "panel": es un clic explícito del dueño.
+		srvCfg.Hooks["POST /api/decide"] = &server.PanelAPI{Token: cfg.PanelToken, Decide: func(c context.Context, id, d string) string {
+			return ag.OnDecision(c, id, agent.Decision(d), "panel")
+		}}
+	}
+
 	var cal *calendar.Service
 	if cfg.CalendarEnabled {
 		cal = &calendar.Service{

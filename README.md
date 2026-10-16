@@ -234,6 +234,19 @@ docker build -t mano-worker apps/worker
 docker run -d --restart=always --env-file .env --network host mano-worker   # host: las llamadas usan UDP
 ```
 
+## Panel
+
+`pnpm dev:web` → http://localhost:3000. Pide la contraseña `PANEL_PASSWORD` y guarda una cookie firmada por 30 días; si cambiás la contraseña, se cierran todas las sesiones.
+
+- **Inicio:** estado del día, tarjetas con **Aprobar, Descartar y No me avises más**, llamadas y registro. Las decisiones van al worker (`POST /api/decide`, con `PANEL_TOKEN`) y se ejecutan en `Agent.OnDecision`, el mismo camino que los botones del chat. Desde el panel también se aprueba lo que mueve plata: es un clic explícito.
+- **Llamadas:** cada llamada con resumen, transcripción y costo.
+- **Cobros:** links de pago y transferencias.
+- **Reglas:** cada regla en una frase, con sus usos; se pueden pausar.
+- **Memoria:** agregar u olvidar datos del negocio.
+- **Registro:** todo lo que hizo Mano, quién lo aprobó y cuánto costó.
+
+Supabase Auth con varios usuarios queda para la Fase 1.
+
 ## Hablale normal
 
 No hace falta saberse los comandos: "cobrale 150 lucas a Pérez por la factura 123", "llamalo a Gómez para recordarle que vence hoy", "acordate que los honorarios son 3% más IVA", "¿cómo vienen los cobros?". Funciona igual con audios.

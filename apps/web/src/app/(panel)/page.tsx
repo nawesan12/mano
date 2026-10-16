@@ -1,8 +1,9 @@
+import Decide from '@/components/Decide';
 import { db, tenantId } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-type Approval = { id: string; area: string; risk: string; title: string; detail: string | null };
+type Approval = { id: string; area: string; risk: string; title: string; detail: string | null; action: { type?: string } | null };
 type Call = { id: string; reason: string; status: string; duration_s: number; summary: string | null; wa_cost_usd: number; ai_cost_usd: number; created_at: string };
 type Log = { id: number; area: string; summary: string; resolved_via: string; cost_usd: number; created_at: string };
 
@@ -18,7 +19,7 @@ export default async function Home() {
   const since = new Date(); since.setHours(0, 0, 0, 0);
 
   const [approvals, log, spend, budget, events, calls, policy] = await Promise.all([
-    sb.from('approvals').select('id,area,risk,title,detail').eq('tenant_id', t).eq('status', 'pending').order('created_at'),
+    sb.from('approvals').select('id,area,risk,title,detail,action').eq('tenant_id', t).eq('status', 'pending').order('created_at'),
     sb.from('actions_log').select('id,area,summary,resolved_via,cost_usd,created_at').eq('tenant_id', t).order('created_at', { ascending: false }).limit(20),
     sb.from('spend_summary').select('day_usd,month_usd').eq('tenant_id', t).maybeSingle(),
     sb.from('budgets').select('cap_day_usd,cap_month_usd').eq('tenant_id', t).maybeSingle(),
@@ -39,9 +40,9 @@ export default async function Home() {
   const free = ev.length ? Math.round((ev.filter((e) => e.triaged_via === 'rule').length / ev.length) * 100) : 0;
 
   return (
-    <main>
+    <>
       <h1>Hola. Esto hizo <em>Mano</em>.</h1>
-      <p className="sub">Las decisiones se toman desde Telegram, WhatsApp o en una llamada. Este panel muestra el estado.</p>
+      <p className="sub">Decidí acá, en Telegram, en WhatsApp o en una llamada: todo pasa por el mismo lugar.</p>
 
       <section className="stats">
         <div className="stat"><small>Esperan tu ok</small><b>{pend.length}</b></div>
@@ -61,6 +62,7 @@ export default async function Home() {
               <span className="chip">{a.area} · riesgo {a.risk}</span>
               <div><b>{a.title}</b></div>
               {a.detail && <p>{a.detail.slice(0, 400)}</p>}
+              <Decide id={a.id} canIgnore={a.action?.type === 'gmail.reply' || a.action?.type === 'whatsapp.reply'} />
             </div>
           ))}
           <h2 className="gap">Llamadas</h2>
@@ -86,6 +88,6 @@ export default async function Home() {
           ))}
         </section>
       </div>
-    </main>
+    </>
   );
 }
