@@ -150,7 +150,7 @@ func (c *Caller) CallOwner(ctx context.Context, r agent.CallRequest) (string, er
 		c.missed(r, status, pol)
 		return "", nil
 	}
-	c.talk(ctx, callID, "out", r.Reason, r.Detail, media, sig)
+	c.talk(ctx, callID, "out", c.ownerConvo(ctx, media, r.Reason, r.Detail), media, sig)
 	return "", nil
 }
 
@@ -242,7 +242,7 @@ func (c *Caller) askPermission(ctx context.Context) {
 }
 
 // session arma la configuración de voz que va con la oferta al modelo.
-func (c *Caller) session(instructions string) map[string]any {
+func (c *Caller) session(instructions string, tools []map[string]any) map[string]any {
 	audio := map[string]any{
 		"input": map[string]any{"turn_detection": map[string]any{"type": "semantic_vad"}},
 	}
@@ -252,16 +252,39 @@ func (c *Caller) session(instructions string) map[string]any {
 	if c.Voice != "" {
 		audio["output"] = map[string]any{"voice": c.Voice}
 	}
-	return map[string]any{"type": "realtime", "model": c.Model, "instructions": instructions, "audio": audio, "tools": Tools(), "tool_choice": "auto"}
+	return map[string]any{"type": "realtime", "model": c.Model, "instructions": instructions, "audio": audio, "tools": tools, "tool_choice": "auto"}
 }
 
-// talk conecta al modelo y corre la conversación hasta que alguno corta.
-func (c *Caller) talk(ctx context.Context, callID, direction, reason, detail string, media Media, sig chan signal) {
-	start := c.now()
+// convo es con quién se habla y qué puede hacer Mano en la llamada.
+type convo struct {
+	reason       string // para el registro
+	instructions string
+	tools        []map[string]any
+	sess         *session
+	approvedBy   string
+	report       func(summary string) string // texto al dueño al terminar
+	failNote     string
+}
+
+// ownerConvo: con el dueño, Mano puede aprobar, descartar, silenciar, recordar y cortar.
+func (c *Caller) ownerConvo(ctx context.Context, media Media, reason, detail string) convo {
 	facts, _ := c.Store.Facts(ctx)
 	missions, _ := c.Store.Missions(ctx)
 	pending, _ := c.Store.PendingApprovals(ctx)
-	sess := newSession(media, c.Decider, c.Store, "voz:"+c.OwnerPhone, pending)
+	return convo{
+		reason: reason, approvedBy: "voz",
+		instructions: Instructions(agent.OwnerSystem(facts, missions), reason, detail, pending),
+		tools:        Tools(OwnerTools...),
+		sess:         newSession(media, c.Decider, c.Store, "voz:"+c.OwnerPhone, pending, OwnerTools),
+		report:       func(s string) string { return s },
+		failNote:     "Te atendí pero se me cortó la voz. Te dejo el motivo por acá: " + reason,
+	}
+}
+
+// talk conecta al modelo y corre la conversación hasta que alguno corta.
+func (c *Caller) talk(ctx context.Context, callID, direction string, cv convo, media Media, sig chan signal) {
+	start := c.now()
+	sess := cv.sess
 
 	end := store.CallEnd{Status: "completed", StartedAt: start}
 	finish := func() {
@@ -280,19 +303,18 @@ func (c *Caller) talk(ctx context.Context, callID, direction, reason, detail str
 			_ = c.Models.RecordVoice(context.WithoutCancel(ctx), c.Model, in, out, end.AICostUSD)
 		}
 		_ = c.Store.FinishCall(context.WithoutCancel(ctx), callID, end)
-		_ = c.Store.Log(context.WithoutCancel(ctx), store.LogEntry{Area: "Llamadas", Tool: "call", Summary: "Llamada: " + core.Truncate(reason, 120) + ". " + end.Summary,
-			Via: "top", Model: c.Model, ApprovedBy: "voz", CostUSD: end.AICostUSD + end.WACostUSD})
+		_ = c.Store.Log(context.WithoutCancel(ctx), store.LogEntry{Area: "Llamadas", Tool: "call", Summary: "Llamada: " + core.Truncate(cv.reason, 120) + ". " + end.Summary,
+			Via: "top", Model: c.Model, ApprovedBy: cv.approvedBy, CostUSD: end.AICostUSD + end.WACostUSD})
 		if end.Status == "completed" {
-			_ = c.Notify.Send(context.WithoutCancel(ctx), end.Summary)
+			_ = c.Notify.Send(context.WithoutCancel(ctx), cv.report(end.Summary))
 		}
 	}
 	defer finish()
 
-	instr := Instructions(agent.OwnerSystem(facts, missions), reason, detail, pending)
 	offer, err := media.BrainOffer(ctx)
 	if err == nil {
 		var answer string
-		if answer, err = c.Brain.Connect(ctx, offer, c.session(instr)); err == nil {
+		if answer, err = c.Brain.Connect(ctx, offer, c.session(cv.instructions, cv.tools)); err == nil {
 			err = media.SetBrainAnswer(answer)
 		}
 	}
@@ -300,7 +322,7 @@ func (c *Caller) talk(ctx context.Context, callID, direction, reason, detail str
 		slog.Error("voz: no conecté con el modelo", "err", err)
 		end.Status = "failed"
 		_ = c.Phone.TerminateCall(context.WithoutCancel(ctx), callID)
-		_ = c.Notify.Send(context.WithoutCancel(ctx), "Te atendí pero se me cortó la voz. Te dejo el motivo por acá: "+reason)
+		_ = c.Notify.Send(context.WithoutCancel(ctx), cv.failNote)
 		return
 	}
 	// El modelo habla primero: saluda y cuenta el motivo.
@@ -346,7 +368,7 @@ func summarize(seconds int, done []string) string {
 		d = fmt.Sprintf("%d s", seconds)
 	}
 	if len(done) == 0 {
-		return "Hablamos " + d + ". No cambié nada."
+		return "Hablamos " + d + ". Sin novedades para anotar."
 	}
 	return "Hablamos " + d + ". Hecho:\n- " + strings.Join(done, "\n- ")
 }
@@ -444,7 +466,7 @@ func (c *Caller) answer(ctx context.Context, ev whatsapp.CallEvent) {
 	c.listen(ev.ID, sig)
 	defer c.live.Delete(ev.ID)
 	_ = c.Store.InsertCall(ctx, store.Call{ID: ev.ID, Direction: "in", Reason: "Me llamaste", Status: "accepted", Attempt: 1})
-	c.talk(ctx, ev.ID, "in", "El dueño te llamó. Preguntale en qué lo ayudás y contale lo pendiente si hay algo.", "", media, sig)
+	c.talk(ctx, ev.ID, "in", c.ownerConvo(ctx, media, "El dueño te llamó. Preguntale en qué lo ayudás y contale lo pendiente si hay algo.", ""), media, sig)
 }
 
 // CallNow es /llamame: llama ya con lo pendiente, sin mirar horario ni tope.

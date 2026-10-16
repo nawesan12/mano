@@ -31,6 +31,7 @@ type session struct {
 	memory    Memory
 	by        string
 	pending   []store.Approval // numerados desde 1, como se los lee el modelo
+	allowed   map[string]bool
 	hangup    chan struct{}
 	hangOnce  sync.Once
 	mu        sync.Mutex
@@ -40,29 +41,52 @@ type session struct {
 	done      []string
 }
 
-func newSession(m Media, d Decider, mem Memory, by string, pending []store.Approval) *session {
-	return &session{media: m, decide: d, memory: mem, by: by, pending: pending, hangup: make(chan struct{})}
+func newSession(m Media, d Decider, mem Memory, by string, pending []store.Approval, tools []string) *session {
+	allowed := map[string]bool{}
+	for _, t := range tools {
+		allowed[t] = true
+	}
+	return &session{media: m, decide: d, memory: mem, by: by, pending: pending, allowed: allowed, hangup: make(chan struct{})}
 }
+
+var (
+	// OwnerTools: con el dueño se decide.
+	OwnerTools = []string{"aprobar", "descartar", "silenciar_remitente", "recordar", "cortar"}
+	// CustomerTools: con un cliente solo se escucha, se anota y se corta. Nada se aprueba ni se ejecuta.
+	CustomerTools = []string{"anotar", "cortar"}
+)
 
 func (s *session) requestHangup() { s.hangOnce.Do(func() { close(s.hangup) }) }
 
-// Tools son las únicas acciones disponibles en la llamada. Todo lo que sale pasa por OnDecision.
-func Tools() []map[string]any {
+// Tools devuelve la definición de las herramientas pedidas. Todo lo que ejecuta algo pasa por OnDecision.
+func Tools(names ...string) []map[string]any {
 	num := map[string]any{"type": "object", "properties": map[string]any{
 		"numero": map[string]any{"type": "integer", "description": "número del pendiente, como figura en la lista"},
 	}, "required": []string{"numero"}}
 	fn := func(name, desc string, params map[string]any) map[string]any {
 		return map[string]any{"type": "function", "name": name, "description": desc, "parameters": params}
 	}
-	return []map[string]any{
+	all := []map[string]any{
 		fn("aprobar", "Ejecuta un pendiente. Solo después de leerle al dueño qué se va a hacer y escuchar un sí claro.", num),
 		fn("descartar", "Descarta un pendiente sin hacer nada.", num),
 		fn("silenciar_remitente", "Descarta el pendiente y no avisa más de ese remitente.", num),
 		fn("recordar", "Guarda algo que el dueño te enseña del negocio.", map[string]any{"type": "object", "properties": map[string]any{
 			"tema": map[string]any{"type": "string"}, "dato": map[string]any{"type": "string"},
 		}, "required": []string{"tema", "dato"}}),
+		fn("anotar", "Anota para el dueño lo que dijo o pidió la otra persona: respuestas, compromisos, pedidos.", map[string]any{"type": "object", "properties": map[string]any{
+			"nota": map[string]any{"type": "string"},
+		}, "required": []string{"nota"}}),
 		fn("cortar", "Corta la llamada. Usalo después de despedirte.", map[string]any{"type": "object", "properties": map[string]any{}}),
 	}
+	var out []map[string]any
+	for _, t := range all {
+		for _, n := range names {
+			if t["name"] == n {
+				out = append(out, t)
+			}
+		}
+	}
+	return out
 }
 
 // Instructions arma lo que el modelo sabe al atender.
@@ -177,7 +201,19 @@ func (s *session) pick(args string) (*store.Approval, string) {
 
 // run ejecuta una herramienta y devuelve el resultado para el modelo.
 func (s *session) run(ctx context.Context, name, args string) string {
+	if !s.allowed[name] {
+		return "No tengo esa herramienta en esta llamada."
+	}
 	switch name {
+	case "anotar":
+		var a struct{ Nota string }
+		if json.Unmarshal([]byte(args), &a) != nil || strings.TrimSpace(a.Nota) == "" {
+			return "Falta la nota."
+		}
+		s.mu.Lock()
+		s.done = append(s.done, core.Truncate(strings.TrimSpace(a.Nota), 300))
+		s.mu.Unlock()
+		return "Anotado."
 	case "aprobar", "descartar", "silenciar_remitente":
 		ap, msg := s.pick(args)
 		if ap == nil {

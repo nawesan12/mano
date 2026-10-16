@@ -50,7 +50,7 @@ var DecisionRe = regexp.MustCompile(`^ap:([0-9a-f-]{36}):(ok|no|ig)$`)
 
 var factRe = regexp.MustCompile(`(?s)^([^:]{1,60}):\s*(.+)$`)
 
-const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamame /silencio 21-8 /llamadas 3. O escribime normal."
+const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /llamame /silencio 21-8 /llamadas 3. O escribime normal."
 
 // HandleText atiende un mensaje de texto del dueño: comandos primero (gratis), después el agente.
 func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
@@ -114,6 +114,18 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			return
 		}
 		msg, ap := s.Agent.ProposeRule(ctx, args)
+		if ap == nil {
+			say(msg)
+			return
+		}
+		_ = ch.ApprovalCard(ctx, *ap)
+	case "llamar":
+		m := factRe.FindStringSubmatch(args)
+		if m == nil {
+			say("Usalo así: /llamar Pérez: recordarle que vence la factura 123. Te muestro la llamada y sale solo si la aprobás.")
+			return
+		}
+		msg, ap := s.Agent.ProposeCustomerCall(ctx, strings.TrimSpace(m[1]), strings.TrimSpace(m[2]))
 		if ap == nil {
 			say(msg)
 			return
