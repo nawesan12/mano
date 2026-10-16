@@ -21,6 +21,7 @@ type Tier string
 const (
 	Cheap Tier = "cheap"
 	Top   Tier = "top"
+	Voice Tier = "voice" // voz en tiempo real durante una llamada
 )
 
 // Event es todo lo que entra a Mano, normalizado.
@@ -45,6 +46,8 @@ type Triage struct {
 	Via         string // rule | classifier
 	RuleID      string
 	CostUSD     float64
+	Notify      string // de la regla: "" | call | silent
+	IgnoreQuiet bool
 }
 
 type Message struct {

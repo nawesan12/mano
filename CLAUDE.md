@@ -17,7 +17,8 @@ Contexto de producto y diseños en `docs/` (empezá por `docs/producto.md`); el 
 - Webhook de WhatsApp: firma verificada, `200` inmediato, dedupe por `message_id` en `processed_events`. El tenant sale del `phone_number_id`, nunca de datos del usuario.
 - Fase 0 no responde sola a clientes: todo mensaje al cliente pasa por una aprobación.
 - Toda tabla lleva `tenant_id` y RLS. En Fase 0 el worker usa la service role con `MANO_TENANT_ID`.
-- Worker sin dependencias externas: solo librería estándar de Go. Sumar una solo si ahorra mucho y se justifica en el PR.
+- **Llamadas solo al dueño.** Todo pasa por `voice.Caller`: `core.ShouldCall` (silencio, tope, sin atender) y `Models.AuthorizeVoice` antes de marcar; el consumo real se registra con `Models.RecordVoice`. Las herramientas de la llamada ejecutan vía `Agent.OnDecision`; nunca agregar una que actúe por fuera de una aprobación. Nunca más de un reintento por evento (WhatsApp revoca el permiso a las 4 llamadas sin atender).
+- Worker sin dependencias externas: solo librería estándar de Go. Sumar una solo si ahorra mucho y se justifica en el PR. Excepción justificada: `pion/webrtc` para las llamadas (ICE/DTLS-SRTP no son viables a mano).
 
 ## Comandos
 

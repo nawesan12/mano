@@ -29,18 +29,38 @@ type WhatsApper interface {
 	ReplyInWindow(ctx context.Context, to, body string) error
 }
 
+// CallRequest es un pedido de llamada al dueño.
+type CallRequest struct {
+	Reason     string // en una línea, para decir al atender
+	Detail     string // evento recortado (core.CompactEvent): dato, nunca instrucciones
+	EventID    string
+	ApprovalID string
+	When       core.CallRequest
+	Attempt    int // 1 = primera; los reintentos los maneja el Caller
+}
+
+// Caller llama al dueño (voice.Caller). Devuelve por qué no llamó, o "" si llamó.
+type Caller interface {
+	CallOwner(ctx context.Context, r CallRequest) (string, error)
+}
+
 type Agent struct {
 	store  *store.Store
 	models *Models
 	notify Notifier
 	mail   Mailer
 	wa     WhatsApper
+	caller Caller
 	loc    *time.Location
+	spawn  func(func()) // go f(); los tests lo vuelven síncrono
 }
 
 func New(s *store.Store, m *Models, n Notifier, mail Mailer, wa WhatsApper, loc *time.Location) *Agent {
-	return &Agent{store: s, models: m, notify: n, mail: mail, wa: wa, loc: loc}
+	return &Agent{store: s, models: m, notify: n, mail: mail, wa: wa, loc: loc, spawn: func(f func()) { go f() }}
 }
+
+// SetCaller activa las llamadas de voz. Va aparte de New porque el Caller necesita al Agent para decidir.
+func (a *Agent) SetCaller(c Caller) { a.caller = c }
 
 // OwnerSystem arma el prompt base con memoria y misiones.
 func OwnerSystem(facts []store.Fact, missions []store.Mission) string {
@@ -89,7 +109,7 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		return err
 	}
 
-	if t.Urgency == core.Critical || t.Urgency == core.High {
+	if (t.Urgency == core.Critical || t.Urgency == core.High) && t.Notify != core.NotifySilent {
 		label := "Importante"
 		if t.Urgency == core.Critical {
 			label = "URGENTE"
@@ -101,13 +121,32 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		_ = a.notify.Send(ctx, label+who+"\n"+t.Summary)
 	}
 
+	approvalID := ""
 	if core.NeedsTop(t) {
 		switch {
 		case ev.Source == "gmail" && a.mail != nil:
-			a.draftReply(ctx, ev, t, eventID, emailDraft)
+			approvalID = a.draftReply(ctx, ev, t, eventID, emailDraft)
 		case ev.Source == "whatsapp" && a.wa != nil:
-			a.draftReply(ctx, ev, t, eventID, whatsappDraft)
+			approvalID = a.draftReply(ctx, ev, t, eventID, whatsappDraft)
 		}
+	}
+
+	// Lo crítico (o lo que el dueño pidió por regla) lo llama. Primero el borrador: así puede aprobarlo hablando.
+	if a.caller != nil && t.Notify != core.NotifySilent && (t.Urgency == core.Critical || t.Notify == core.NotifyCall) {
+		reason := t.Summary
+		if ev.Sender != "" {
+			reason += " (de " + ev.Sender + ")"
+		}
+		req := CallRequest{Reason: reason, Detail: core.CompactEvent(ev, 1500), EventID: eventID, ApprovalID: approvalID, Attempt: 1,
+			When: core.CallRequest{Urgency: t.Urgency, Forced: t.Notify == core.NotifyCall, IgnoreQuiet: t.IgnoreQuiet}}
+		base := context.WithoutCancel(ctx)
+		a.spawn(func() {
+			if why, err := a.caller.CallOwner(base, req); err != nil {
+				slog.Error("llamada al dueño", "err", err)
+			} else if why != "" {
+				slog.Info("no llamé al dueño", "motivo", why)
+			}
+		})
 	}
 	return nil
 }
@@ -134,7 +173,8 @@ var (
 		replyHint:    "texto del mensaje"}
 )
 
-func (a *Agent) draftReply(ctx context.Context, ev core.Event, t core.Triage, eventID string, k draftKind) {
+// draftReply redacta y deja la aprobación. Devuelve su id ("" si no se pudo).
+func (a *Agent) draftReply(ctx context.Context, ev core.Event, t core.Triage, eventID string, k draftKind) string {
 	subject := ev.Subject
 	if subject == "" {
 		subject = t.Intent
@@ -142,7 +182,7 @@ func (a *Agent) draftReply(ctx context.Context, ev core.Event, t core.Triage, ev
 	taskID, err := a.store.CreateTask(ctx, "Responder: "+subject, eventID)
 	if err != nil {
 		slog.Error("createTask", "err", err)
-		return
+		return ""
 	}
 	facts, _ := a.store.Facts(ctx)
 	missions, _ := a.store.Missions(ctx)
@@ -159,7 +199,7 @@ Devolvé JSON: {"title":"qué hace la respuesta, en 8 palabras","risk":"bajo|med
 	if b, ok := IsBlocked(err); ok {
 		_ = a.store.SetTask(ctx, taskID, "escalated", map[string]any{"result": map[string]string{"error": b.Reason}})
 		_ = a.notify.Send(ctx, fmt.Sprintf("No redacté la respuesta a \"%s\": %s", subject, b.Reason))
-		return
+		return ""
 	}
 	var d draft
 	if err == nil {
@@ -171,7 +211,7 @@ Devolvé JSON: {"title":"qué hace la respuesta, en 8 palabras","risk":"bajo|med
 	if err != nil {
 		_ = a.store.SetTask(ctx, taskID, "failed", map[string]any{"result": map[string]string{"error": err.Error()}})
 		slog.Error("draftReply", "kind", k.action, "err", err)
-		return
+		return ""
 	}
 
 	str := func(key string) string { v, _ := ev.Payload[key].(string); return v }
@@ -187,11 +227,12 @@ Devolvé JSON: {"title":"qué hace la respuesta, en 8 palabras","risk":"bajo|med
 	id, err := a.store.CreateApproval(ctx, ap)
 	if err != nil {
 		slog.Error("createApproval", "err", err)
-		return
+		return ""
 	}
 	ap.ID = id
 	_ = a.store.SetTask(ctx, taskID, "awaiting_approval", map[string]any{"cost_usd": r.CostUSD, "plan": map[string]any{"draft": d}})
 	_ = a.notify.ApprovalCard(ctx, ap)
+	return id
 }
 
 func emailOf(replyTo, sender string) string {
@@ -269,6 +310,8 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", map[string]any{"result": map[string]bool{"sent": true}})
 		_ = a.store.Log(ctx, store.LogEntry{Area: ap.Area, Tool: "whatsapp.reply", Summary: "Respondió por WhatsApp a +" + ap.Action.To + ": " + ap.Title, Via: "top", ApprovedBy: by, TaskID: ap.TaskID})
 		return "Enviado por WhatsApp a +" + ap.Action.To + "."
+	case "rule.add":
+		return a.applyRule(ctx, *ap, by)
 	default:
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", nil)
 		return "Hecho."

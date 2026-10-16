@@ -53,7 +53,8 @@ func RunTriage(ctx context.Context, ev Event, rules []Rule, cheap LLM) Triage {
 		if intent == "" {
 			intent = "regla"
 		}
-		return Triage{Urgency: r.Outcome.Urgency, NeedsAction: r.Outcome.NeedsAction, Intent: intent, Summary: s, Via: "rule", RuleID: r.ID}
+		return Triage{Urgency: r.Outcome.Urgency, NeedsAction: r.Outcome.NeedsAction, Intent: intent, Summary: s, Via: "rule", RuleID: r.ID,
+			Notify: r.Outcome.Notify, IgnoreQuiet: r.Outcome.IgnoreQuiet}
 	}
 	if cheap == nil {
 		return Triage{Urgency: Normal, Intent: "sin clasificar", Summary: fallbackSummary(ev), Via: "rule"}

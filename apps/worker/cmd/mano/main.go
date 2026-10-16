@@ -27,6 +27,7 @@ import (
 	"github.com/nawesan12/mano/worker/internal/store"
 	"github.com/nawesan12/mano/worker/internal/stt"
 	"github.com/nawesan12/mano/worker/internal/telegram"
+	"github.com/nawesan12/mano/worker/internal/voice"
 	"github.com/nawesan12/mano/worker/internal/whatsapp"
 )
 
@@ -108,13 +109,38 @@ func main() {
 	ag := agent.New(st, models, notifier, mailer, waReplier, cfg.Location)
 	svc := &owner.Service{Agent: ag, Models: models, Store: st, STT: transcriber}
 
+	// Voz: lo crítico te llama por WhatsApp y lo resolvés hablando.
+	var caller *voice.Caller
+	if cfg.VoiceEnabled && waClient != nil {
+		var stun []string
+		if cfg.STUNURL != "" {
+			stun = []string{cfg.STUNURL}
+		}
+		caller = &voice.Caller{
+			Phone: waClient, Brain: voice.NewRealtime(cfg.RealtimeBaseURL, cfg.RealtimeKey),
+			NewMedia: func() (voice.Media, error) { return voice.NewBridge(stun) },
+			Store:    st, Models: models, Decider: ag, Notify: notifier,
+			OwnerPhone: cfg.WAOwnerPhone, Loc: cfg.Location,
+			Model: cfg.RealtimeModel, Voice: cfg.RealtimeVoice, TranscribeModel: cfg.RealtimeTranscribe,
+			PriceIn: cfg.RealtimePriceIn, PriceOut: cfg.RealtimePriceOut, WAUSDPerMin: cfg.WACallUSDPerMin,
+			MaxCall: cfg.CallMax, RingTimeout: cfg.CallRing,
+			PermissionTemplate: cfg.WATemplateCallPermission, TemplateLang: cfg.WATemplateLang,
+		}
+		ag.SetCaller(caller)
+		svc.Calls = caller
+	}
+
 	srvCfg := &server.Server{Gmail: source, Sink: ag, PushToken: cfg.GmailPushToken, TenantID: cfg.TenantID, Base: ctx}
 	if waClient != nil {
-		srvCfg.WhatsApp = &whatsapp.Webhook{
+		wh := &whatsapp.Webhook{
 			Client: waClient, Store: st, Owner: svc, OwnerChan: waChan, Sink: ag, STT: transcriber,
 			AppSecret: cfg.WAAppSecret, VerifyToken: cfg.WAVerifyToken, PhoneID: cfg.WAPhoneID,
 			OwnerPhone: cfg.WAOwnerPhone, TenantID: cfg.TenantID, Base: ctx,
 		}
+		if caller != nil {
+			wh.Calls = caller
+		}
+		srvCfg.WhatsApp = wh
 	}
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: srvCfg.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -148,7 +174,7 @@ func main() {
 		schedule.Daily(ctx, "gmail-watch", "03:00", cfg.Location, renew)
 	}
 
-	slog.Info("mano trabajando", "canal", cfg.OwnerChannel, "resumen", cfg.BriefAt, "tz", cfg.Location.String())
+	slog.Info("mano trabajando", "canal", cfg.OwnerChannel, "llamadas", caller != nil, "resumen", cfg.BriefAt, "tz", cfg.Location.String())
 	if tgClient != nil {
 		telegram.NewBot(tgClient, tgChan, cfg.OwnerChatID, svc).Run(ctx)
 	} else {
