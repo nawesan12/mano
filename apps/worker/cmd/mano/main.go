@@ -63,8 +63,10 @@ func main() {
 	defer stop()
 
 	var gm *gmail.Client
+	var googleAuth *google.Auth // compartido por Gmail y Calendar
 	if cfg.GmailEnabled() {
-		gm = gmail.New(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRefreshToken, cfg.GmailTopic)
+		googleAuth = google.NewAuth(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRefreshToken)
+		gm = gmail.New(googleAuth, cfg.GmailTopic)
 	}
 	if *watchOnly {
 		if gm == nil {
@@ -232,7 +234,7 @@ func main() {
 	var cal *calendar.Service
 	if cfg.CalendarEnabled {
 		cal = &calendar.Service{
-			Client: calendar.NewClient(google.NewAuth(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRefreshToken)),
+			Client: calendar.NewClient(googleAuth),
 			Store:  st, Sink: ag, Loc: cfg.Location, TenantID: cfg.TenantID, PushToken: cfg.CalendarPushToken,
 			Address: cfg.PublicURL + "/webhooks/calendar", Base: ctx,
 		}

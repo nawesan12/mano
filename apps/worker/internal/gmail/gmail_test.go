@@ -3,6 +3,7 @@ package gmail
 import (
 	"context"
 	"encoding/base64"
+	"github.com/nawesan12/mano/worker/internal/google"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -50,8 +51,8 @@ func TestHistoryFallbackAndTokenCache(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	c := New("id", "secret", "refresh", "topic")
-	c.tokenURL, c.base = srv.URL+"/token", srv.URL+"/gmail/"
+	c := New(google.NewAuth("id", "secret", "refresh"), "topic")
+	c.auth.TokenURL, c.base = srv.URL+"/token", srv.URL+"/gmail/"
 	ids, err := c.NewMessagesSince(context.Background(), 100)
 	if err != nil || strings.Join(ids, ",") != "a,b" {
 		t.Fatalf("fallback: %v %v", ids, err)

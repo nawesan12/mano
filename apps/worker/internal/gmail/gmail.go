@@ -19,60 +19,32 @@ import (
 	"time"
 
 	"github.com/nawesan12/mano/worker/internal/core"
+	"github.com/nawesan12/mano/worker/internal/google"
 	"github.com/nawesan12/mano/worker/internal/store"
 )
 
 const apiBase = "https://gmail.googleapis.com/gmail/v1/users/me/"
 
 type Client struct {
-	clientID, clientSecret, refreshToken, topic string
-	hc                                          *http.Client
+	auth  *google.Auth
+	topic string
+	hc    *http.Client
 
 	mu          sync.Mutex
-	accessToken string
-	expiresAt   time.Time
 	lastHistory uint64
 
-	tokenURL, base string // configurables para tests
+	base string // configurable para tests
 }
 
-func New(clientID, clientSecret, refreshToken, topic string) *Client {
-	return &Client{clientID: clientID, clientSecret: clientSecret, refreshToken: refreshToken, topic: topic,
-		hc: &http.Client{Timeout: 30 * time.Second}, tokenURL: "https://oauth2.googleapis.com/token", base: apiBase}
+// New usa el acceso de Google compartido (el mismo que Calendar: una sola renovación del token).
+func New(auth *google.Auth, topic string) *Client {
+	return &Client{auth: auth, topic: topic, hc: &http.Client{Timeout: 30 * time.Second}, base: apiBase}
 }
 
 var errNotFound = errors.New("no encontrado")
 
-func (c *Client) token(ctx context.Context) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.accessToken != "" && time.Now().Before(c.expiresAt) {
-		return c.accessToken, nil
-	}
-	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {c.refreshToken}, "client_id": {c.clientID}, "client_secret": {c.clientSecret}}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	res, err := c.hc.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer res.Body.Close()
-	var out struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
-		Error       string `json:"error_description"`
-	}
-	_ = json.NewDecoder(res.Body).Decode(&out)
-	if res.StatusCode >= 300 || out.AccessToken == "" {
-		return "", fmt.Errorf("no pude renovar el acceso a Gmail: %d %s", res.StatusCode, out.Error)
-	}
-	c.accessToken = out.AccessToken
-	c.expiresAt = time.Now().Add(time.Duration(out.ExpiresIn-60) * time.Second)
-	return c.accessToken, nil
-}
-
 func (c *Client) api(ctx context.Context, method, path string, q url.Values, body, out any) error {
-	tok, err := c.token(ctx)
+	tok, err := c.auth.Token(ctx)
 	if err != nil {
 		return err
 	}
