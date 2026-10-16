@@ -1,0 +1,28 @@
+# Caddy pone HTTPS con certificado válido (Let's Encrypt) solo: Meta, Mercado Pago y Google lo exigen.
+# Cambiá el dominio por el tuyo (un registro A apuntando a la IP del VPS).
+{$MANO_DOMAIN:mano.tudominio.com} {
+	encode gzip
+
+	# webhooks y API del worker
+	handle /webhooks/* {
+		reverse_proxy 127.0.0.1:8787
+	}
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8787
+	}
+	handle /health {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	# el panel (si lo corrés en el mismo VPS)
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}

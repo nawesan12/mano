@@ -1,0 +1,23 @@
+# Mano en un VPS: worker + Caddy (HTTPS). El worker va con red del host porque las llamadas usan WebRTC (UDP).
+#   cd deploy && MANO_DOMAIN=mano.tudominio.com docker compose up -d --build
+services:
+  worker:
+    build: ../apps/worker
+    env_file: ../.env
+    network_mode: host
+    restart: always
+
+  caddy:
+    image: caddy:2
+    network_mode: host
+    restart: always
+    environment:
+      - MANO_DOMAIN=${MANO_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
