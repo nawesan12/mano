@@ -153,6 +153,17 @@ Puesta en marcha:
 
 Ajustes por chat: `/silencio 22-7`, `/llamadas 5`, `/llamadas off`, `/regla llamame si escribe Liliana o si entra un pago de más de 500.000`.
 
+## Primera prueba real (checklist)
+
+1. Migraciones `0001` a `0008` corridas en Supabase.
+2. En el VPS: `.env` completo y `make check`. Prueba cada integración contra el servicio real: Supabase, Telegram, WhatsApp, permiso de llamada, WebRTC/STUN (IP pública), voz en tiempo real, notas de voz, Google y Mercado Pago. No manda mensajes ni llama. Hasta que no diga "Todo en orden", no sigas.
+3. `make run` (o Docker con `--network host`). Mirá `/health`.
+4. Escribile a Mano por WhatsApp (abre la ventana) y mandá `/llamame`. Si falta el permiso, aceptá el pedido con **Siempre permitir** y repetí.
+5. Atendé y decí "¿qué tengo pendiente?". En el log tienen que aparecer, en orden, la oferta, el `connect` de Meta, `ACCEPTED` y la conexión con el modelo. Si se corta en el `connect`, buscá `voz: sdp de meta`.
+6. Mandate un mail con "nuevo CBU" para probar la ruta crítica completa: aviso, borrador y llamada. Aprobá hablando.
+7. Llamá vos al número de Mano.
+8. Revisá en el panel la llamada, su costo y el registro.
+
 ## En el VPS
 
 ```

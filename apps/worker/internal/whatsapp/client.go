@@ -284,3 +284,13 @@ func (o *OwnerChannel) ApprovalCard(ctx context.Context, a store.Approval) error
 		{ID: "ap:" + a.ID + ":ig", Title: "Silenciar remitente"},
 	})
 }
+
+// PhoneInfo devuelve el número y el nombre verificado: sirve para comprobar el token y el phone_number_id.
+func (c *Client) PhoneInfo(ctx context.Context) (number, name string, err error) {
+	var out struct {
+		Number string `json:"display_phone_number"`
+		Name   string `json:"verified_name"`
+	}
+	err = c.do(ctx, http.MethodGet, c.base+"/"+c.phoneID+"?fields=display_phone_number,verified_name", nil, &out)
+	return out.Number, out.Name, err
+}

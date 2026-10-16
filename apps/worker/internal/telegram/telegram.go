@@ -263,3 +263,12 @@ func (b *Bot) download(ctx context.Context, fileID string) ([]byte, error) {
 	defer res.Body.Close()
 	return io.ReadAll(io.LimitReader(res.Body, 25<<20))
 }
+
+// Me devuelve el usuario del bot: sirve para comprobar el token.
+func (c *Client) Me(ctx context.Context) (string, error) {
+	var out struct {
+		Username string `json:"username"`
+	}
+	err := c.call(ctx, "getMe", map[string]any{}, &out)
+	return out.Username, err
+}

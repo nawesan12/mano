@@ -216,3 +216,26 @@ func (w *Webhook) process(id string) {
 		slog.Error("mercadopago evento", "err", err)
 	}
 }
+
+// Me devuelve el usuario de la cuenta: sirve para comprobar el access token.
+func (c *Client) Me(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/users/me", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	res, err := c.hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	var out struct {
+		Nickname string `json:"nickname"`
+		Message  string `json:"message"`
+	}
+	_ = json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&out)
+	if res.StatusCode >= 300 {
+		return "", fmt.Errorf("mercadopago %d: %s", res.StatusCode, out.Message)
+	}
+	return out.Nickname, nil
+}
