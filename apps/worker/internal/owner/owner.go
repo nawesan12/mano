@@ -249,6 +249,8 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			return
 		}
 		_ = ch.ApprovalCard(ctx, *ap)
+	case "desarchivar":
+		say(s.Agent.Unarchive(ctx, args))
 	case "buscar", "memoria":
 		if args == "" {
 			say("Usalo así: /buscar qué me dijo Pérez del contrato")

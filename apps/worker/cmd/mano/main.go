@@ -140,6 +140,9 @@ func main() {
 		waReplier = waClient
 	}
 	ag := agent.New(st, models, notifier, mailer, waReplier, cfg.Location)
+	if gm != nil && cfg.GmailArchiveIgnored {
+		ag.SetArchiver(gm) // lo ignorado se archiva solo (reversible)
+	}
 	svc := &owner.Service{Agent: ag, Models: models, Store: st, STT: transcriber}
 
 	// Voz: lo crítico te llama por WhatsApp y lo resolvés hablando.

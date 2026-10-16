@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"github.com/nawesan12/mano/worker/internal/google"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -60,5 +61,42 @@ func TestHistoryFallbackAndTokenCache(t *testing.T) {
 	_, _ = c.NewMessagesSince(context.Background(), 101)
 	if tokenCalls != 1 {
 		t.Fatalf("el token se debe cachear, pedidos: %d", tokenCalls)
+	}
+}
+
+func TestArchiveCreatesLabelOnce(t *testing.T) {
+	var labelsCreated int
+	var mods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/token":
+			_, _ = w.Write([]byte(`{"access_token":"at","expires_in":3600}`))
+		case r.URL.Path == "/gmail/labels" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"labels":[{"id":"INBOX","name":"INBOX"}]}`))
+		case r.URL.Path == "/gmail/labels" && r.Method == http.MethodPost:
+			labelsCreated++
+			_, _ = w.Write([]byte(`{"id":"Label_9"}`))
+		case strings.HasSuffix(r.URL.Path, "/modify"):
+			b, _ := io.ReadAll(r.Body)
+			mods = append(mods, r.URL.Path+" "+string(b))
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	c := New(google.NewAuth("id", "secret", "refresh"), "")
+	c.auth.TokenURL, c.base = srv.URL+"/token", srv.URL+"/gmail/"
+	if err := c.Archive(context.Background(), "m1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Unarchive(context.Background(), "m1"); err != nil {
+		t.Fatal(err)
+	}
+	if labelsCreated != 1 || len(mods) != 2 {
+		t.Fatal(labelsCreated, mods)
+	}
+	if !strings.Contains(mods[0], `"addLabelIds":["Label_9"],"removeLabelIds":["INBOX"]`) || !strings.Contains(mods[1], `"addLabelIds":["INBOX"],"removeLabelIds":["Label_9"]`) {
+		t.Fatal(mods)
 	}
 }
