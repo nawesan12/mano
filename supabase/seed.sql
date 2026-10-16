@@ -26,5 +26,8 @@ insert into rules (tenant_id, priority, match, outcome, origin) values
    '{"textIncludesAny":["intimación","embargo","carta documento","vencimiento hoy"]}',
    '{"urgency":"critical","needsAction":true,"note":"Legal o fiscal urgente"}', 'playbook');
 
+-- Reglas de arranque de Mercado Pago, Calendar y Mercado Libre (función de 0023)
+do $$ begin perform mano_reglas_de_arranque('00000000-0000-0000-0000-000000000001'); end $$;
+
 -- insert into members (tenant_id, user_id, role, telegram_chat_id)
 -- values ('00000000-0000-0000-0000-000000000001', '<tu auth.users.id>', 'owner', <tu chat id>);

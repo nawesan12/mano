@@ -5,6 +5,7 @@
 set -euo pipefail
 : "${DATABASE_URL:?Falta DATABASE_URL}"
 cd "$(dirname "$0")"
+export PGOPTIONS="-c client_min_messages=warning"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "create table if not exists mano_migrations (name text primary key, applied_at timestamptz not null default now())"
 for f in migrations/*.sql; do
   name=$(basename "$f")
