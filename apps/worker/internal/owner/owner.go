@@ -122,8 +122,23 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 		return
 	}
 	switch cmd {
-	case "start", "ayuda", "help":
-		say("Hola. Ya estoy trabajando. " + help)
+	case "start":
+		say(s.Agent.Welcome(ctx, help))
+	case "ayuda", "help":
+		say(help)
+	case "negocio", "rubro":
+		if args == "" {
+			say("Usalo así: /negocio Costa Azul, inmobiliaria. Rubros: " + core.PlaybookNames())
+			return
+		}
+		name, vertical := args, args
+		if i := strings.LastIndex(args, ","); i >= 0 {
+			name, vertical = strings.TrimSpace(args[:i]), strings.TrimSpace(args[i+1:])
+		}
+		if cmd == "rubro" {
+			name = ""
+		}
+		say(s.Agent.SetupBusiness(ctx, name, vertical))
 	case "resumen":
 		t, err := s.Agent.Brief(ctx)
 		if err != nil {

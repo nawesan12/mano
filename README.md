@@ -298,6 +298,20 @@ docker run -d --restart=always --env-file .env --network host mano-worker   # ho
 
 Supabase Auth con varios usuarios queda para la Fase 1.
 
+## Rubros (playbooks)
+
+Al mandar `/start`, Mano pregunta qué negocio es. `/negocio Costa Azul, inmobiliaria` (o "tengo una inmobiliaria que se llama Costa Azul") carga lo típico de ese rubro:
+
+| Rubro | Reconoce sin IA, por ejemplo |
+| --- | --- |
+| Inmobiliaria | Seña o boleto, pedido de tasación (lead), visita, consulta de portal, reclamo de inquilino |
+| Consultorio | Posible urgencia (crítica: derivar), turno, cancelación, obra social |
+| Gastronomía | Queja de salud (crítica), reserva, pedido o delivery, proveedor |
+| E-commerce | Desconocimiento de compra (crítica), reclamo de envío, cambio o devolución, mayorista |
+| Servicios profesionales | Vencimiento o intimación (crítica), presupuesto, reunión, pagos |
+
+También suma dos misiones del rubro y te sugiere qué contarle (`/recordar Honorarios: …`). Si cambiás de rubro, se sacan las reglas del anterior; las tuyas no se tocan. Están en `internal/core/playbooks.go`. Correr `0017_playbooks.sql`.
+
 ## Hablale normal
 
 No hace falta saberse los comandos: "cobrale 150 lucas a Pérez por la factura 123", "llamalo a Gómez para recordarle que vence hoy", "acordate que los honorarios son 3% más IVA", "¿cómo vienen los cobros?". Funciona igual con audios.
@@ -309,6 +323,7 @@ Mano lo traduce al comando equivalente y lo corre con las mismas validaciones. L
 | Comando | Qué hace |
 | --- | --- |
 | texto o audio | Le hablás como a un empleado |
+| `/negocio Nombre, rubro` | Configura el negocio y carga el playbook del rubro |
 | `/resumen` | El resumen del día, ahora |
 | `/pendientes` | Vuelve a mostrar lo que espera tu ok |
 | `/gasto` | Gasto de IA del día, mes y última hora |

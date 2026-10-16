@@ -280,3 +280,31 @@ func TestParseUntil(t *testing.T) {
 		}
 	}
 }
+
+func TestPlaybooksAreValid(t *testing.T) {
+	for _, p := range Playbooks {
+		for i, r := range p.Rules {
+			m, _ := json.Marshal(r.Match)
+			o, _ := json.Marshal(r.Outcome)
+			if _, err := ParseRule("x", 60+i, m, o); err != nil {
+				t.Errorf("%s regla %d: %v", p.Key, i, err)
+			}
+		}
+	}
+	for in, want := range map[string]string{"tengo una inmobiliaria": "inmobiliaria", "Soy odontóloga": "consultorio", "una pizzería": "gastronomia", "estudio contable": "servicios"} {
+		if p := FindPlaybook(in); p == nil || p.Key != want {
+			t.Errorf("%q → %v", in, p)
+		}
+	}
+	// la cascada usa el playbook: un pedido de tasación es un lead importante, sin IA
+	inmo := FindPlaybook("inmobiliaria")
+	rules := make([]Rule, len(inmo.Rules))
+	for i, r := range inmo.Rules {
+		r.ID, r.Priority = "p", 60+i
+		rules[i] = r
+	}
+	tr := RunTriage(context.Background(), Event{Source: "gmail", Body: "Hola, quisiera una tasación de mi departamento"}, rules, nil)
+	if tr.Urgency != High || !tr.NeedsAction || tr.Via != "rule" {
+		t.Fatalf("%+v", tr)
+	}
+}

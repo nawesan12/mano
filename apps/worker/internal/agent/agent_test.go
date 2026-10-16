@@ -775,3 +775,51 @@ func TestInvoiceFromPayment(t *testing.T) {
 		t.Fatal("con DNI sí")
 	}
 }
+
+// El rubro carga reglas y misiones; cambiarlo saca las del anterior pero nunca las del dueño.
+func TestPlaybookSetup(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, _, _ := setup(t)
+	db.Set("tenants", []map[string]any{{"id": tenant, "name": "Nahuel"}})
+	if w := a.Welcome(ctx, "x"); !strings.Contains(w, "/negocio Costa Azul, inmobiliaria") {
+		t.Fatal("sin rubro, pregunta:", w)
+	}
+	db.Set("rules", append(db.Rows("rules"), map[string]any{"id": "mia", "tenant_id": tenant, "priority": 50, "origin": "owner", "active": true,
+		"match": map[string]any{"senderIncludesAny": []string{"liliana"}}, "outcome": map[string]any{"urgency": "high", "notify": "call"}}))
+	msg := a.SetupBusiness(ctx, "Costa Azul", "inmobiliaria")
+	if !strings.Contains(msg, "Listo: Costa Azul, inmobiliaria") || !strings.Contains(msg, "/recordar Honorarios") {
+		t.Fatal(msg)
+	}
+	count := func(pb string) int {
+		n := 0
+		for _, r := range db.Rows("rules") {
+			if r["playbook"] == pb {
+				n++
+			}
+		}
+		return n
+	}
+	if count("inmobiliaria") != 5 || len(db.Rows("missions")) != 2 {
+		t.Fatalf("reglas %d, misiones %d", count("inmobiliaria"), len(db.Rows("missions")))
+	}
+	_ = a.SetupBusiness(ctx, "", "contadora")
+	if count("inmobiliaria") != 0 || count("servicios") != 4 {
+		t.Fatal("cambiar de rubro reemplaza el playbook")
+	}
+	var mine bool
+	for _, r := range db.Rows("rules") {
+		mine = mine || r["id"] == "mia"
+	}
+	if !mine {
+		t.Fatal("la regla del dueño no se toca")
+	}
+	if name, v, _ := a.store.Business(ctx); name != "Costa Azul" || v != "servicios" {
+		t.Fatal(name, v)
+	}
+	if msg := a.SetupBusiness(ctx, "X", "astronauta"); !strings.Contains(msg, "No conozco ese rubro") {
+		t.Fatal(msg)
+	}
+	if w := a.Welcome(ctx, "Comandos"); !strings.Contains(w, "Ya estoy trabajando para Costa Azul") {
+		t.Fatal(w)
+	}
+}
