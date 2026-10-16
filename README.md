@@ -118,7 +118,10 @@ Se cambia con `/regla`, por ejemplo: `/regla llamame si entra un pago de más de
 
 - **`/cobrar Pérez 150000 factura 123`:** te muestra el mensaje que le va a mandar y, **solo si lo aprobás**, arma el link de pago (vence en 7 días) y se lo manda a Pérez por WhatsApp. Si su ventana de 24 h está cerrada, te pasa el link para que lo reenvíes vos.
   - Cuando paga, el webhook marca el cobro y te avisa como importante: "te pagaron un link de cobro".
-  - Si a los 3 días no pagó, te lo recuerda una vez y te sugiere `/llamar Pérez: recordarle el pago`. Si vence, te avisa.
+  - **Cobranza escalonada**, cada paso con tu aprobación:
+    - día 3: tarjeta para mandarle un recordatorio amable por WhatsApp con el mismo link;
+    - día 6: tarjeta para llamarlo, con un objetivo claro y sin presionar;
+    - día 7: vence y te sugiere mandar uno nuevo. Correr `0022_cobranza.sql`.
 - **`/devolver 1234567890 [monto]`:** devolución total o parcial. Es **riesgo alto** y se aprueba **solo con el botón, nunca por voz**. Lleva clave de idempotencia: un doble toque no devuelve dos veces.
 - **`/cobros`:** lo cobrado en las últimas 24 h y en 7 días (bruto, neto, por liberar, devuelto), los últimos pagos y los links sin pagar. Mercado Pago no tiene un endpoint oficial de saldo; esto sale de la búsqueda de pagos.
 

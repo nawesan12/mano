@@ -408,6 +408,8 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		return a.startCustomerCall(ctx, *ap, by)
 	case "mp.link":
 		return a.sendCharge(ctx, *ap, by)
+	case "charge.nudge":
+		return a.nudgeCharge(ctx, *ap, by)
 	case "mp.refund":
 		return a.refund(ctx, *ap, by)
 	case "mp.payout":

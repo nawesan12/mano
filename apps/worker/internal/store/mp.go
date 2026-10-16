@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,6 +21,7 @@ type Charge struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	ExpiresAt   *time.Time `json:"expires_at"`
 	RemindedAt  *time.Time `json:"reminded_at"`
+	Stage       int        `json:"stage"` // cobranza: 0 nada · 1 se propuso recordarle · 2 se propuso llamarlo
 }
 
 func (s *Store) InsertCharge(ctx context.Context, c Charge) error {
@@ -44,7 +46,7 @@ func (s *Store) MarkChargePaid(ctx context.Context, id string, paymentID int64) 
 
 func (s *Store) PendingCharges(ctx context.Context) ([]Charge, error) {
 	var out []Charge
-	q := s.q("status", "eq.pending", "select", "id,pref_id,phone,name,description,amount,url,status,created_at,expires_at,reminded_at", "order", "created_at")
+	q := s.q("status", "eq.pending", "select", "id,pref_id,phone,name,description,amount,url,status,created_at,expires_at,reminded_at,stage", "order", "created_at")
 	return out, s.do(ctx, http.MethodGet, "mp_charges", q, nil, "", &out)
 }
 
@@ -52,8 +54,10 @@ func (s *Store) SetChargeStatus(ctx context.Context, id, status string) error {
 	return s.do(ctx, http.MethodPatch, "mp_charges", s.q("id", "eq."+id), map[string]any{"status": status}, "", nil)
 }
 
-func (s *Store) MarkChargeReminded(ctx context.Context, id string, at time.Time) error {
-	return s.do(ctx, http.MethodPatch, "mp_charges", s.q("id", "eq."+id), map[string]any{"reminded_at": at.UTC().Format(time.RFC3339)}, "", nil)
+// SetChargeStage avanza la cobranza de un link (nunca la retrocede).
+func (s *Store) SetChargeStage(ctx context.Context, id string, stage int, at time.Time) error {
+	return s.do(ctx, http.MethodPatch, "mp_charges", s.q("id", "eq."+id, "stage", "lt."+strconv.Itoa(stage)),
+		map[string]any{"stage": stage, "reminded_at": at.UTC().Format(time.RFC3339)}, "", nil)
 }
 
 // Payout es una transferencia saliente aprobada por el dueño.
