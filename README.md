@@ -169,6 +169,8 @@ El refresh token es de un solo uso: Mano guarda el nuevo en cada renovación. Si
 - **Aprobar:** solo con el botón o desde el panel, nunca por voz, porque queda informada en ARCA y solo se anula con nota de crédito.
 - **Al emitir:** te devuelve el número, el CAE y el link del QR para verificarla. El mismo pago no se factura dos veces.
 
+**Notas de crédito:** si devolvés (`/devolver`) un pago que estaba facturado, Mano te deja lista la nota de crédito C asociada por el monto devuelto. También a mano, con `/anular 124 [monto]`. Nunca anula más de lo que queda facturado, y se aprueban solo con el botón. Correr `0018_notas_credito.sql`.
+
 **Fase 0:** Factura C (monotributo) a consumidor final. Desde `ARCA_CF_MAX` pide el DNI (`/facturar 12000000 Juan dni 12345678`). Factura A/B con IVA y el PDF con el QR quedan para más adelante; el link del QR es el oficial y sirve para verificarla.
 
 Cómo funciona: firma el pedido de acceso con el certificado de tu CUIT (CMS armado con la librería estándar y verificado con openssl en los tests), lo manda a WSAA y pide el CAE a WSFEv1 con el próximo número. El ticket de acceso (unas 12 h) queda guardado, porque ARCA no da otro mientras siga vigente.
@@ -337,6 +339,7 @@ Mano lo traduce al comando equivalente y lo corre con las mismas validaciones. L
 | `/devolver pago [monto]` | Devolución; solo con el botón, nunca por voz |
 | `/envios` | Envíos de Mercado Libre en curso |
 | `/facturar monto cliente: concepto` | Factura C en ARCA; solo con el botón |
+| `/anular número [monto]` | Nota de crédito C que anula una factura |
 | `/cliente Quién` · `/nota Quién: dato` | Ficha del cliente y notas que Mano usa al responder |
 | `/ausente hasta el lunes` · `/volvi` | Modo ausencia: solo lo crítico, respuesta a clientes aprobada |
 | `/transferir destino monto motivo` | Transferencia; topes duros, solo con el botón (apagada por defecto) |

@@ -128,6 +128,17 @@ func TestAuthorizeInvoices(t *testing.T) {
 			t.Errorf("falta %s en el pedido", want)
 		}
 	}
+	nc := Invoice{CbteTipo: 13, Concepto: 2, Total: 50000, DocTipo: 99, Date: inv.Date, Assoc: &Assoc{Tipo: 11, PtoVta: 3, Nro: 124, Date: inv.Date}}
+	if _, err := c.Authorize(context.Background(), nc); err != nil {
+		t.Fatal(err)
+	}
+	last := f.bodies[len(f.bodies)-1]
+	if !strings.Contains(last, "<ar:CbteTipo>13</ar:CbteTipo>") || !strings.Contains(last, "<ar:CbtesAsoc><ar:CbteAsoc><ar:Tipo>11</ar:Tipo><ar:PtoVta>3</ar:PtoVta><ar:Nro>124</ar:Nro>") {
+		t.Fatal("la nota de crédito lleva el comprobante asociado:", last)
+	}
+	if c.Label(13, 1) != "Nota de Crédito C 0003-00000001" {
+		t.Fatal(c.Label(13, 1))
+	}
 	f.reject = true
 	if _, err := c.Authorize(context.Background(), inv); err == nil || !strings.Contains(err.Error(), "Falta el documento") {
 		t.Fatal("un rechazo explica el motivo:", err)

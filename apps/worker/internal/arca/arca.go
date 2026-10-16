@@ -238,6 +238,13 @@ type Invoice struct {
 	DocTipo  int     // 99 = sin identificar (consumidor final); 96 = DNI; 80 = CUIT
 	DocNro   int64
 	Date     time.Time
+	Assoc    *Assoc // nota de crédito: el comprobante que anula
+}
+
+// Assoc es el comprobante asociado (obligatorio en notas de crédito y débito).
+type Assoc struct {
+	Tipo, PtoVta, Nro int
+	Date              time.Time
 }
 
 // Result es el comprobante autorizado.
@@ -270,11 +277,16 @@ func (c *Client) Authorize(ctx context.Context, inv Invoice) (Result, error) {
 		serv = fmt.Sprintf(`<ar:FchServDesde>%s</ar:FchServDesde><ar:FchServHasta>%s</ar:FchServHasta><ar:FchVtoPago>%s</ar:FchVtoPago>`, day, day, day)
 	}
 	condIVA := 5 // consumidor final (obligatorio desde RG 5616)
+	assoc := ""
+	if inv.Assoc != nil {
+		assoc = fmt.Sprintf(`<ar:CbtesAsoc><ar:CbteAsoc><ar:Tipo>%d</ar:Tipo><ar:PtoVta>%d</ar:PtoVta><ar:Nro>%d</ar:Nro><ar:Cuit>%d</ar:Cuit><ar:CbteFch>%s</ar:CbteFch></ar:CbteAsoc></ar:CbtesAsoc>`,
+			inv.Assoc.Tipo, inv.Assoc.PtoVta, inv.Assoc.Nro, c.CUIT, inv.Assoc.Date.In(c.location).Format("20060102"))
+	}
 	body := fmt.Sprintf(`<ar:FECAESolicitar xmlns:ar="%s">%s<ar:FeCAEReq><ar:FeCabReq><ar:CantReg>1</ar:CantReg><ar:PtoVta>%d</ar:PtoVta><ar:CbteTipo>%d</ar:CbteTipo></ar:FeCabReq>`+
 		`<ar:FeDetReq><ar:FECAEDetRequest><ar:Concepto>%d</ar:Concepto><ar:DocTipo>%d</ar:DocTipo><ar:DocNro>%d</ar:DocNro><ar:CbteDesde>%d</ar:CbteDesde><ar:CbteHasta>%d</ar:CbteHasta>`+
 		`<ar:CbteFch>%s</ar:CbteFch><ar:ImpTotal>%s</ar:ImpTotal><ar:ImpTotConc>0</ar:ImpTotConc><ar:ImpNeto>%s</ar:ImpNeto><ar:ImpOpEx>0</ar:ImpOpEx><ar:ImpTrib>0</ar:ImpTrib><ar:ImpIVA>0</ar:ImpIVA>`+
-		`%s<ar:MonId>PES</ar:MonId><ar:MonCotiz>1</ar:MonCotiz><ar:CondicionIVAReceptorId>%d</ar:CondicionIVAReceptorId></ar:FECAEDetRequest></ar:FeDetReq></ar:FeCAEReq></ar:FECAESolicitar>`,
-		fev1, c.auth(t), c.PtoVta, inv.CbteTipo, inv.Concepto, inv.DocTipo, inv.DocNro, n, n, day, money2(inv.Total), money2(inv.Total), serv, condIVA)
+		`%s<ar:MonId>PES</ar:MonId><ar:MonCotiz>1</ar:MonCotiz><ar:CondicionIVAReceptorId>%d</ar:CondicionIVAReceptorId>%s</ar:FECAEDetRequest></ar:FeDetReq></ar:FeCAEReq></ar:FECAESolicitar>`,
+		fev1, c.auth(t), c.PtoVta, inv.CbteTipo, inv.Concepto, inv.DocTipo, inv.DocNro, n, n, day, money2(inv.Total), money2(inv.Total), serv, condIVA, assoc)
 	var res struct {
 		Body struct {
 			R struct {
@@ -315,7 +327,7 @@ func (c *Client) QRURL(inv Invoice, r Result) string {
 
 // Label: "Factura C 0003-00000124".
 func (c *Client) Label(cbteTipo, number int) string {
-	kind := map[int]string{11: "Factura C", 6: "Factura B", 1: "Factura A"}[cbteTipo]
+	kind := map[int]string{11: "Factura C", 13: "Nota de Crédito C", 6: "Factura B", 1: "Factura A"}[cbteTipo]
 	if kind == "" {
 		kind = "Comprobante " + strconv.Itoa(cbteTipo)
 	}

@@ -103,7 +103,7 @@ var chargeRe = regexp.MustCompile(`^(.+?)\s+\$?(\d[\d.,]*[kK]?)\s*(.*)$`)
 
 var factRe = regexp.MustCompile(`(?s)^([^:]{1,60}):\s*(.+)$`)
 
-const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /ausente hasta el lunes /volvi /diagnostico /cliente Quién /nota Quién: dato /facturar monto cliente: concepto /llamame /silencio 21-8 /llamadas 3. O escribime normal."
+const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /ausente hasta el lunes /volvi /diagnostico /cliente Quién /nota Quién: dato /facturar monto cliente: concepto /anular factura /llamame /silencio 21-8 /llamadas 3. O escribime normal."
 
 // HandleText atiende un mensaje de texto del dueño: comandos primero (gratis), después el agente.
 func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
@@ -256,6 +256,26 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			return
 		}
 		msg, ap := s.Agent.ProposeInvoice(ctx, amount, who, dni, concept, "")
+		if ap == nil {
+			say(msg)
+			return
+		}
+		_ = ch.ApprovalCard(ctx, *ap)
+	case "anular":
+		f := strings.Fields(args)
+		n := 0
+		if len(f) > 0 {
+			n, _ = strconv.Atoi(strings.TrimLeft(f[0], "0"))
+		}
+		if n <= 0 {
+			say("Usalo así: /anular 124 [monto]. Sin monto, la anulo entera.")
+			return
+		}
+		amount := 0.0
+		if len(f) > 1 {
+			amount, _ = mercadopago.ParseAmount(f[1])
+		}
+		msg, ap := s.Agent.ProposeCreditByNumber(ctx, n, amount)
 		if ap == nil {
 			say(msg)
 			return
