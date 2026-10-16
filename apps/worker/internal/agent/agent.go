@@ -19,6 +19,11 @@ type Notifier interface {
 	ApprovalCard(ctx context.Context, a store.Approval) error
 }
 
+// VoiceNotifier es un Notifier que además manda notas de voz (owner.Fallback).
+type VoiceNotifier interface {
+	SendVoice(ctx context.Context, audio []byte, caption string) error
+}
+
 // Mailer ejecuta acciones de mail aprobadas. Puede ser nil si Gmail no está conectado.
 type Mailer interface {
 	Reply(ctx context.Context, a store.Action) error
@@ -118,7 +123,11 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		if ev.Sender != "" {
 			who = " · " + ev.Sender
 		}
-		_ = a.notify.Send(ctx, label+who+"\n"+t.Summary)
+		text := label + who + "\n" + t.Summary
+		// Lo importante va como nota de voz: se escucha manejando. Lo crítico ya llama.
+		if t.Urgency != core.High || !a.voiceNote(ctx, ev, t, text) {
+			_ = a.notify.Send(ctx, text)
+		}
 	}
 
 	approvalID := ""
@@ -149,6 +158,37 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		})
 	}
 	return nil
+}
+
+// voiceNote intenta avisar con una nota de voz. false = no se pudo y hay que mandar texto.
+func (a *Agent) voiceNote(ctx context.Context, ev core.Event, t core.Triage, caption string) bool {
+	vn, ok := a.notify.(VoiceNotifier)
+	if !ok || a.models.TTS == nil {
+		return false
+	}
+	script := "Te aviso algo importante. " + t.Summary
+	if name := speakableName(ev.Sender); name != "" {
+		script += ". Es de " + name + "."
+	}
+	audio, err := a.models.Speak(ctx, script, false)
+	if err != nil {
+		slog.Info("nota de voz: va por texto", "err", err)
+		return false
+	}
+	return vn.SendVoice(ctx, audio, caption) == nil
+}
+
+// speakableName saca el nombre de "Ramírez <r@mail.com>" o "Marta (+54911…)": las direcciones no se leen en voz alta.
+func speakableName(sender string) string {
+	s := sender
+	if i := strings.IndexAny(s, "<("); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.Trim(strings.TrimSpace(s), `"'`)
+	if strings.ContainsAny(s, "@+") || s == "" {
+		return ""
+	}
+	return s
 }
 
 type draft struct {

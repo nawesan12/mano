@@ -39,6 +39,12 @@ type fakeGraph struct {
 func (g *fakeGraph) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if strings.HasSuffix(r.URL.Path, "/media") {
+		_ = r.ParseMultipartForm(1 << 20)
+		g.sent = append(g.sent, map[string]any{"upload": r.FormValue("type")})
+		_, _ = w.Write([]byte(`{"id":"media-1"}`))
+		return
+	}
 	var p map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&p)
 	g.sent = append(g.sent, p)
@@ -283,5 +289,38 @@ func TestCallWebhooksAndPermission(t *testing.T) {
 	sent := r.graph.take()
 	if len(sent) != 1 || !strings.Contains(sent[0]["text"].(map[string]any)["body"].(string), "te llamo") {
 		t.Fatalf("confirma el permiso: %v", sent)
+	}
+}
+
+// La nota de voz reemplaza al aviso de texto: dentro de la ventana sube el audio y lo manda; fuera, la plantilla.
+func TestOwnerVoiceNote(t *testing.T) {
+	r := setup(t, "mano_aviso")
+	ctx := context.Background()
+	if err := r.wh.OwnerChan.SendVoice(ctx, []byte("OggS"), "Importante · Marta"); err != nil {
+		t.Fatal(err)
+	}
+	if sent := r.graph.take(); len(sent) != 1 || sent[0]["type"] != "template" {
+		t.Fatalf("con la ventana cerrada va la plantilla: %v", sent)
+	}
+	if err := r.wh.Store.TouchContact(ctx, ownerTel, "", true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.wh.OwnerChan.SendVoice(ctx, []byte("OggS"), "Importante · Marta"); err != nil {
+		t.Fatal(err)
+	}
+	sent := r.graph.take()
+	if len(sent) != 2 || sent[0]["upload"] != "audio/ogg" || sent[1]["type"] != "audio" {
+		t.Fatalf("sube y manda la nota: %v", sent)
+	}
+	audio := sent[1]["audio"].(map[string]any)
+	if audio["id"] != "media-1" || audio["voice"] != true {
+		t.Fatalf("nota de voz: %v", audio)
+	}
+	var kinds []string
+	for _, m := range r.db.Rows("wa_messages") {
+		kinds = append(kinds, m["kind"].(string))
+	}
+	if strings.Join(kinds, ",") != "template,audio" {
+		t.Fatalf("todo saliente queda registrado: %v", kinds)
 	}
 }
