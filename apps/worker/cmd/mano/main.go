@@ -160,7 +160,13 @@ func main() {
 	}
 	srvCfg.Hooks = map[string]http.Handler{}
 	if cfg.MPAccessToken != "" {
-		srvCfg.Hooks["/webhooks/mercadopago"] = &mercadopago.Webhook{Client: mercadopago.NewClient(cfg.MPAccessToken),
+		mp := mercadopago.NewClient(cfg.MPAccessToken)
+		notify := ""
+		if cfg.PublicURL != "" {
+			notify = cfg.PublicURL + "/webhooks/mercadopago"
+		}
+		ag.SetPayments(mp, notify)
+		srvCfg.Hooks["/webhooks/mercadopago"] = &mercadopago.Webhook{Client: mp, Charges: st,
 			Secret: cfg.MPWebhookSecret, Sink: ag, TenantID: cfg.TenantID, Base: ctx}
 	}
 	var cal *calendar.Service

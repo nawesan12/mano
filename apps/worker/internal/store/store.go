@@ -266,13 +266,15 @@ func (s *Store) SetTask(ctx context.Context, id, state string, patch map[string]
 // ── Aprobaciones ───────────────────────────────────────────
 
 type Action struct {
-	Type      string `json:"type"` // gmail.reply | note
-	ThreadID  string `json:"threadId,omitempty"`
-	MessageID string `json:"messageId,omitempty"`
-	To        string `json:"to,omitempty"`
-	Subject   string `json:"subject,omitempty"`
-	Body      string `json:"body,omitempty"`
-	Text      string `json:"text,omitempty"`
+	Type      string  `json:"type"` // gmail.reply | note
+	ThreadID  string  `json:"threadId,omitempty"`
+	MessageID string  `json:"messageId,omitempty"`
+	To        string  `json:"to,omitempty"`
+	Subject   string  `json:"subject,omitempty"`
+	Body      string  `json:"body,omitempty"`
+	Text      string  `json:"text,omitempty"`
+	Amount    float64 `json:"amount,omitempty"`
+	Ref       string  `json:"ref,omitempty"` // id externo: pago de Mercado Pago, destino de una transferencia…
 }
 
 type Approval struct {
@@ -311,6 +313,14 @@ func (s *Store) DecideApproval(ctx context.Context, id, status, by string) (*App
 	q := s.q("id", "eq."+id, "status", "eq.pending", "select", approvalCols)
 	err := s.do(ctx, http.MethodPatch, "approvals", q, map[string]any{"status": status, "decided_by": by, "decided_at": time.Now().UTC().Format(time.RFC3339)}, "return=representation", &out)
 	if err != nil || len(out) == 0 {
+		return nil, err
+	}
+	return &out[0], nil
+}
+
+func (s *Store) GetApproval(ctx context.Context, id string) (*Approval, error) {
+	var out []Approval
+	if err := s.do(ctx, http.MethodGet, "approvals", s.q("id", "eq."+id, "select", approvalCols), nil, "", &out); err != nil || len(out) == 0 {
 		return nil, err
 	}
 	return &out[0], nil

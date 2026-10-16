@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nawesan12/mano/worker/internal/core"
+	"github.com/nawesan12/mano/worker/internal/mercadopago"
 	"github.com/nawesan12/mano/worker/internal/store"
 	"github.com/nawesan12/mano/worker/internal/testutil"
 )
@@ -368,5 +369,96 @@ func TestCustomerCallNeedsApproval(t *testing.T) {
 	}
 	if got := a.OnDecision(ctx, ap.ID, Approve, "test"); !strings.Contains(got, "ya estaba resuelta") || len(fc.calls) != 1 {
 		t.Fatal("doble toque no vuelve a llamar")
+	}
+}
+
+type fakePay struct {
+	links   []string
+	refunds []string
+	payment mercadopago.Payment
+}
+
+func (f *fakePay) CreateLink(_ context.Context, title string, amount float64, ref, _ string, ttl time.Duration) (mercadopago.Link, error) {
+	f.links = append(f.links, ref)
+	return mercadopago.Link{ID: "pref-1", URL: "https://mpago.la/abc", Expires: time.Now().Add(ttl)}, nil
+}
+func (f *fakePay) Refund(_ context.Context, id string, amount float64, key string) (string, error) {
+	f.refunds = append(f.refunds, id+":"+key)
+	return "approved", nil
+}
+func (f *fakePay) Payment(context.Context, string) (mercadopago.Payment, error) {
+	return f.payment, nil
+}
+func (f *fakePay) Recent(_ context.Context, days int) (mercadopago.Summary, error) {
+	p := mercadopago.Payment{ID: 9, TransactionAmount: 150000}
+	p.Payer.FirstName = "Juan"
+	return mercadopago.Summary{Count: 3, Gross: 450000, Net: 430000, PendingRelease: 100000, Top: []mercadopago.Payment{p}}, nil
+}
+
+type fakeWA struct{ sent []string }
+
+func (w *fakeWA) ReplyInWindow(_ context.Context, to, body string) error {
+	w.sent = append(w.sent, to+": "+body)
+	return nil
+}
+
+// /cobrar arma el link recién al aprobar y se lo manda al cliente; a los 3 días sin pagar, avisa una vez.
+func TestChargeLinkFlow(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, _, _ := setup(t)
+	pay, wa := &fakePay{}, &fakeWA{}
+	a.SetPayments(pay, "")
+	a.wa = wa
+	db.Set("wa_contacts", []map[string]any{{"tenant_id": tenant, "phone": "5491111111111", "name": "Juan Pérez", "is_owner": false}})
+
+	_, ap := a.ProposeCharge(ctx, "perez", 150000, "factura 123")
+	if ap == nil || ap.Action.Amount != 150000 || len(pay.links) != 0 || !strings.Contains(ap.Detail, "Hola Juan, te paso el link para pagar factura 123 ($150.000)") {
+		t.Fatalf("propuesta: %+v · links %v", ap, pay.links)
+	}
+	if got := a.OnDecision(ctx, ap.ID, Approve, "test"); !strings.Contains(got, "Le mandé a Juan Pérez el link por $150.000") {
+		t.Fatal(got)
+	}
+	if len(wa.sent) != 1 || !strings.Contains(wa.sent[0], "https://mpago.la/abc") || pay.links[0] != "mano-"+ap.ID {
+		t.Fatalf("envío: %v %v", wa.sent, pay.links)
+	}
+	charges := db.Rows("mp_charges")
+	if len(charges) != 1 || charges[0]["status"] != "pending" {
+		t.Fatalf("cobro: %v", charges)
+	}
+	charges[0]["created_at"] = time.Now().Add(-80 * time.Hour).Format(time.RFC3339)
+	db.Set("mp_charges", charges)
+	db.Set("call_policy", []map[string]any{{"tenant_id": tenant, "enabled": true, "quiet_from": "00:00", "quiet_to": "00:00", "max_per_day": 3, "retry_after_min": 10, "max_attempts": 2}})
+	msg, _ := a.FollowUp(ctx, time.Now())
+	if !strings.Contains(msg, "Juan Pérez todavía no pagó el link de $150.000 (factura 123), hace 3 días") {
+		t.Fatalf("seguimiento: %q", msg)
+	}
+	if again, _ := a.FollowUp(ctx, time.Now()); strings.Contains(again, "todavía no pagó") {
+		t.Fatal("avisa una sola vez")
+	}
+	if m := a.Movements(ctx); !strings.Contains(m, "3 pago(s), $450.000 cobrado, $430.000 neto ($100.000 todavía por liberar)") || !strings.Contains(m, "Links sin pagar: 1 ($150.000)") {
+		t.Fatalf("movimientos: %q", m)
+	}
+}
+
+// Una devolución es riesgo alto y no se aprueba por voz; con el botón sí, con clave de idempotencia.
+func TestRefundNeedsButton(t *testing.T) {
+	ctx := context.Background()
+	a, _, _, _, _, _ := setup(t)
+	pay := &fakePay{payment: mercadopago.Payment{ID: 77, Status: "approved", TransactionAmount: 50000, Description: "Seña"}}
+	pay.payment.Payer.Email = "juan@mail.com"
+	a.SetPayments(pay, "")
+	_, ap := a.ProposeRefund(ctx, "77", 0)
+	if ap == nil || ap.Risk != "alto" || ap.Action.Amount != 50000 {
+		t.Fatalf("propuesta: %+v", ap)
+	}
+	if got := a.OnDecision(ctx, ap.ID, Approve, "voz:549223"); !strings.Contains(got, "botón") || len(pay.refunds) != 0 {
+		t.Fatalf("por voz no: %q", got)
+	}
+	if got := a.OnDecision(ctx, ap.ID, Approve, "telegram"); !strings.Contains(got, "devolví $50.000") || pay.refunds[0] != "77:mano-refund-"+ap.ID {
+		t.Fatalf("con botón: %q %v", got, pay.refunds)
+	}
+	pay.payment.Status = "rejected"
+	if msg, ap := a.ProposeRefund(ctx, "78", 0); ap != nil || !strings.Contains(msg, "no está acreditado") {
+		t.Fatal(msg)
 	}
 }

@@ -60,14 +60,16 @@ type CustomerCaller interface {
 }
 
 type Agent struct {
-	store  *store.Store
-	models *Models
-	notify Notifier
-	mail   Mailer
-	wa     WhatsApper
-	caller Caller
-	loc    *time.Location
-	spawn  func(func()) // go f(); los tests lo vuelven síncrono
+	store     *store.Store
+	models    *Models
+	notify    Notifier
+	mail      Mailer
+	wa        WhatsApper
+	caller    Caller
+	pay       Payments
+	payNotify string
+	loc       *time.Location
+	spawn     func(func()) // go f(); los tests lo vuelven síncrono
 }
 
 func New(s *store.Store, m *Models, n Notifier, mail Mailer, wa WhatsApper, loc *time.Location) *Agent {
@@ -306,6 +308,12 @@ const (
 
 // OnDecision ejecuta lo que el dueño decidió en la tarjeta. Devuelve el texto para responderle.
 func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string) string {
+	// Lo que mueve plata se aprueba solo con el botón: una voz se puede imitar o entender mal.
+	if d == Approve && strings.HasPrefix(by, "voz") {
+		if ap, err := a.store.GetApproval(ctx, id); err == nil && ap != nil && moneyActions[ap.Action.Type] {
+			return "Eso mueve plata: aprobalo con el botón de la tarjeta, no por voz."
+		}
+	}
 	status := "rejected"
 	if d == Approve {
 		status = "approved"
@@ -364,6 +372,10 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		return a.applyRule(ctx, *ap, by)
 	case "call.customer":
 		return a.startCustomerCall(ctx, *ap, by)
+	case "mp.link":
+		return a.sendCharge(ctx, *ap, by)
+	case "mp.refund":
+		return a.refund(ctx, *ap, by)
 	default:
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", nil)
 		return "Hecho."

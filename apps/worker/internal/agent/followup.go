@@ -59,6 +59,9 @@ func (a *Agent) FollowUp(ctx context.Context, now time.Time) (string, error) {
 	if len(expired) > 0 {
 		msg = append(msg, "Venció sin respuesta, no hice nada: "+strings.Join(expired, "; ")+".")
 	}
+	if a.pay != nil {
+		msg = append(msg, a.chargeFollowUp(ctx, now)...)
+	}
 	return strings.Join(msg, "\n"), nil
 }
 

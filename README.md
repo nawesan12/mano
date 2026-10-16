@@ -108,6 +108,16 @@ Cada pago que se resuelve entra a la cascada como un evento, igual que un mail. 
 
 Se cambia con `/regla`, por ejemplo: `/regla llamame si entra un pago de más de 2.000.000`.
 
+### Cobrar, devolver y ver movimientos
+
+- **`/cobrar Pérez 150000 factura 123`:** te muestra el mensaje que le va a mandar y, **solo si lo aprobás**, arma el link de pago (vence en 7 días) y se lo manda a Pérez por WhatsApp. Si su ventana de 24 h está cerrada, te pasa el link para que lo reenvíes vos.
+  - Cuando paga, el webhook marca el cobro y te avisa como importante: "te pagaron un link de cobro".
+  - Si a los 3 días no pagó, te lo recuerda una vez y te sugiere `/llamar Pérez: recordarle el pago`. Si vence, te avisa.
+- **`/devolver 1234567890 [monto]`:** devolución total o parcial. Es **riesgo alto** y se aprueba **solo con el botón, nunca por voz**. Lleva clave de idempotencia: un doble toque no devuelve dos veces.
+- **`/cobros`:** lo cobrado en las últimas 24 h y en 7 días (bruto, neto, por liberar, devuelto), los últimos pagos y los links sin pagar. Mercado Pago no tiene un endpoint oficial de saldo; esto sale de la búsqueda de pagos.
+
+Correr `0009_mp_cobros.sql`. Si configurás `PUBLIC_URL`, cada link avisa directo a `/webhooks/mercadopago`.
+
 Puesta en marcha: en Mercado Pago, Tus integraciones → tu app → Webhooks. URL `https://TU-WORKER/webhooks/mercadopago`, evento **Pagos**. Copiá la clave secreta a `MP_WEBHOOK_SECRET` y el access token de producción a `MP_ACCESS_TOKEN`. La firma `x-signature` se valida siempre y los pagos se consultan a la API, nunca se confía en el cuerpo del webhook.
 
 ## Cómo te avisa
@@ -186,6 +196,9 @@ docker run -d --restart=always --env-file .env --network host mano-worker   # ho
 | `/regla …` | Le explicás en tus palabras cuándo avisarte o llamarte; te la muestra para aprobar |
 | `/llamame` | Te llama ahora con lo pendiente |
 | `/llamar Quién: para qué` | Propone llamar a un cliente; sale solo si la aprobás |
+| `/cobrar Quién monto concepto` | Arma un link de Mercado Pago y se lo manda al cliente, si lo aprobás |
+| `/cobros` | Lo cobrado en 24 h y 7 días, y los links sin pagar |
+| `/devolver pago [monto]` | Devolución; solo con el botón, nunca por voz |
 | `/silencio 21-8` | Horario en que no te llama (sin argumento, muestra la configuración) |
 | `/llamadas 3` | Máximo de llamadas por día; `off` / `on` para apagarlas o prenderlas |
 
