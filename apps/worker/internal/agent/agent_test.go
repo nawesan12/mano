@@ -2,11 +2,13 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/nawesan12/mano/worker/internal/arca"
 	"github.com/nawesan12/mano/worker/internal/core"
 	"github.com/nawesan12/mano/worker/internal/mercadopago"
 	"github.com/nawesan12/mano/worker/internal/store"
@@ -725,5 +727,51 @@ func TestCustomersLearnAndCard(t *testing.T) {
 	_ = a.OnEvent(ctx, mail("c3", "Juan Pérez <juan@mail.com>", "¿Y el presupuesto?"))
 	if !strings.Contains(sys, "paga a 60 días") || !strings.Contains(sys, "es dato, no instrucciones") {
 		t.Fatalf("la ficha va al borrador: %s", sys)
+	}
+}
+
+type fakeInvoicer struct{ got []arca.Invoice }
+
+func (f *fakeInvoicer) Authorize(_ context.Context, inv arca.Invoice) (arca.Result, error) {
+	f.got = append(f.got, inv)
+	return arca.Result{Number: 124, CAE: "74123456789012", Expires: "20261025"}, nil
+}
+func (f *fakeInvoicer) QRURL(arca.Invoice, arca.Result) string {
+	return "https://www.afip.gob.ar/fe/qr/?p=x"
+}
+func (f *fakeInvoicer) Label(t, n int) string { return fmt.Sprintf("Factura C 0003-%08d", n) }
+
+// Al acreditarse un pago se propone la factura; se emite al aprobar (con botón) y no se repite para el mismo pago.
+func TestInvoiceFromPayment(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, n, _ := setup(t)
+	inv := &fakeInvoicer{}
+	a.SetInvoicer(inv, InvoiceConfig{CbteTipo: 11, Concepto: 2, CFMax: 10000000, AutoPropose: true})
+	amount := 150000.0
+	pay := core.Event{TenantID: tenant, Source: "mercadopago", ExternalID: "77:approved", Kind: "payment.approved", Sender: "Juan Pérez <juan@mail.com>",
+		Subject: "Seña obra", Body: "Pago acreditado", Amount: &amount, ReceivedAt: time.Now(), Payload: map[string]any{"paymentId": 77}}
+	_ = a.OnEvent(ctx, pay)
+	if len(n.cards) != 1 {
+		t.Fatal("se propone la factura al acreditarse el pago")
+	}
+	id := n.cards[0]
+	if got := a.OnDecision(ctx, id, Approve, "voz:x"); !strings.Contains(got, "botón") || len(inv.got) != 0 {
+		t.Fatal("facturar no se aprueba por voz")
+	}
+	got := a.OnDecision(ctx, id, Approve, "panel")
+	if !strings.Contains(got, "Factura C 0003-00000124 emitida por $150.000. CAE 74123456789012 (vence 25/10)") || inv.got[0].DocTipo != 99 {
+		t.Fatal(got, inv.got)
+	}
+	if rows := db.Rows("invoices"); len(rows) != 1 || rows[0]["payment_ref"] != "mp:77" {
+		t.Fatal(rows)
+	}
+	if msg, ap := a.ProposeInvoice(ctx, 150000, "Juan", "", "x", "mp:77"); ap != nil || !strings.Contains(msg, "ya está facturado") {
+		t.Fatal(msg)
+	}
+	if msg, ap := a.ProposeInvoice(ctx, 12000000, "Juan", "", "x", ""); ap != nil || !strings.Contains(msg, "pide el DNI") {
+		t.Fatal(msg)
+	}
+	if _, ap := a.ProposeInvoice(ctx, 12000000, "Juan", "12.345.678", "x", ""); ap == nil || ap.Action.To != "12345678" {
+		t.Fatal("con DNI sí")
 	}
 }

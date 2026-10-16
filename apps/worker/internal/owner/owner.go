@@ -51,6 +51,27 @@ var DecisionRe = regexp.MustCompile(`^ap:([0-9a-f-]{36}):(ok|no|ig)$`)
 
 var holderRe = regexp.MustCompile(`(?i)\s+titular\s+(.+?)\s+dni\s+(\d[\d.]{6,10})\s*$`)
 
+var dniRe = regexp.MustCompile(`(?i)\s*\bdni\s+(\d[\d.]{6,10})`)
+
+// ParseInvoice: "150000 Juan Pérez dni 12.345.678: diseño de logo" → monto, cliente, dni, concepto.
+func ParseInvoice(args string) (float64, string, string, string, bool) {
+	head, concept, _ := strings.Cut(args, ":")
+	dni := ""
+	if m := dniRe.FindStringSubmatch(head); m != nil {
+		dni = strings.ReplaceAll(m[1], ".", "")
+		head = dniRe.ReplaceAllString(head, "")
+	}
+	f := strings.Fields(head)
+	if len(f) == 0 {
+		return 0, "", "", "", false
+	}
+	amount, ok := mercadopago.ParseAmount(f[0])
+	if !ok {
+		return 0, "", "", "", false
+	}
+	return amount, strings.Join(f[1:], " "), dni, strings.TrimSpace(concept), true
+}
+
 // ParseTransfer: "<mail o CBU> <monto> <motivo> [titular Nombre Apellido dni 12345678]".
 func ParseTransfer(args string) (mercadopago.Destination, float64, string, string) {
 	const usage = "Usalo así: /transferir proveedor@mail.com 50000 factura 88, o /transferir <CBU> 50000 factura 88 titular Juan Pérez dni 12345678"
@@ -82,7 +103,7 @@ var chargeRe = regexp.MustCompile(`^(.+?)\s+\$?(\d[\d.,]*[kK]?)\s*(.*)$`)
 
 var factRe = regexp.MustCompile(`(?s)^([^:]{1,60}):\s*(.+)$`)
 
-const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /ausente hasta el lunes /volvi /diagnostico /cliente Quién /nota Quién: dato /llamame /silencio 21-8 /llamadas 3. O escribime normal."
+const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /ausente hasta el lunes /volvi /diagnostico /cliente Quién /nota Quién: dato /facturar monto cliente: concepto /llamame /silencio 21-8 /llamadas 3. O escribime normal."
 
 // HandleText atiende un mensaje de texto del dueño: comandos primero (gratis), después el agente.
 func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
@@ -208,6 +229,18 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			return
 		}
 		msg, ap := s.Agent.ProposePayout(ctx, d, amount, reason)
+		if ap == nil {
+			say(msg)
+			return
+		}
+		_ = ch.ApprovalCard(ctx, *ap)
+	case "facturar":
+		amount, who, dni, concept, ok := ParseInvoice(args)
+		if !ok {
+			say("Usalo así: /facturar 150000 Juan Pérez: diseño de logo (sumá dni 12345678 si hace falta)")
+			return
+		}
+		msg, ap := s.Agent.ProposeInvoice(ctx, amount, who, dni, concept, "")
 		if ap == nil {
 			say(msg)
 			return

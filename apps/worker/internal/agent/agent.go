@@ -68,6 +68,8 @@ type Agent struct {
 	caller         Caller
 	pay            Payments
 	payNotify      string
+	invoicer       Invoicer
+	invoiceCfg     InvoiceConfig
 	transfers      Transfers
 	transferLimits TransferLimits
 	transferNotify string
@@ -133,6 +135,7 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		return err
 	}
 	a.learnCustomer(ctx, ev, t)
+	a.maybeProposeInvoice(ctx, ev)
 
 	// Ausencia: a los clientes se les responde una vez (si el dueño aprobó el texto) y lo importante espera al resumen.
 	aw := a.away(ctx)
@@ -401,6 +404,8 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		return a.payout(ctx, *ap, by)
 	case "account.trust":
 		return a.trustAccount(ctx, *ap, by)
+	case "arca.invoice":
+		return a.issueInvoice(ctx, *ap, by)
 	case "away.reply":
 		return a.approveAwayReply(ctx, *ap, by)
 	default:

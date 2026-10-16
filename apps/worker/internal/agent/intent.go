@@ -10,7 +10,7 @@ import (
 )
 
 // actionHint: solo si el texto suena a pedido de acción se gasta el clasificador. Charla normal, gratis.
-var actionHint = regexp.MustCompile(`\b(viaj|vacacion|ausent|volvi|cobr|llam|transfer|devol|reembols|record|acorda|anota|avisa|avises|silencio|pagale|pasale|mandale|regla|envio|pendiente|resumen|gasto|ahorr|semana|diagnost|cliente|ficha|sabes de|nota)`)
+var actionHint = regexp.MustCompile(`\b(viaj|vacacion|ausent|volvi|cobr|llam|transfer|devol|reembols|record|acorda|anota|avisa|avises|silencio|pagale|pasale|mandale|regla|envio|pendiente|resumen|gasto|ahorr|semana|diagnost|cliente|ficha|sabes de|nota|factur)`)
 
 const intentSystem = `Traducís un pedido del dueño de un negocio a UNA acción de Mano en JSON. Si no es un pedido de acción, {"accion":"ninguna"}.
 Acciones (usá solo estos campos):
@@ -24,6 +24,7 @@ Acciones (usá solo estos campos):
 - {"accion":"silencio","desde":"22:00","hasta":"07:00"}  (horario sin llamadas)
 - {"accion":"ausente","hasta":"el lunes | 20/10 | 3 días","mensaje":"para los clientes, solo si lo dicta"}  (viaje, vacaciones, enfermedad)
 - {"accion":"volvi"}  (terminó la ausencia)
+- {"accion":"facturar","monto":150000,"quien":"cliente o vacío","concepto":"…","dni":"si lo dice"}  (hacer una factura en ARCA)
 - {"accion":"cliente","quien":"…"}  (ver la ficha de un cliente: "¿qué sabés de Pérez?")
 - {"accion":"nota","quien":"…","texto":"…"}  (anotar algo de un cliente: "anotá que Pérez paga a 60 días")
 - {"accion":"consulta","que":"cobros|envios|pendientes|resumen|gasto|diagnostico"}  (diagnostico = cuánto me ahorraste, cómo fue la semana)
@@ -118,6 +119,21 @@ func (i intent) command(original string) (string, bool) {
 		return c, true
 	case "volvi":
 		return "/volvi", true
+	case "facturar":
+		if i.Monto <= 0 {
+			return "", false
+		}
+		c := "/facturar " + amount(i.Monto)
+		if who != "" {
+			c += " " + who
+		}
+		if d := digitsOnly(i.DNI); d != "" {
+			c += " dni " + d
+		}
+		if cc := field(i.Concepto); cc != "" {
+			c += ": " + strings.ReplaceAll(cc, ":", " ")
+		}
+		return c, true
 	case "cliente":
 		if who == "" {
 			return "", false

@@ -43,6 +43,7 @@ apps/worker/            Go
   internal/server       webhooks de Gmail y otros, /health
   internal/mercadopago  pagos: webhook firmado → evento
   internal/mercadolibre ventas y envíos de Mercado Libre (OAuth con refresh rotativo)
+  internal/arca         facturación electrónica: WSAA (CMS) + WSFEv1
   internal/calendar     Google Calendar: push, sync incremental, movidas, cancelaciones y choques
   internal/schedule     tareas diarias por hora local
 apps/web                panel Next.js (estado, pendientes, registro, gasto)
@@ -160,6 +161,23 @@ Puesta en marcha:
 4. `.env`: `ML_CLIENT_ID`, `ML_CLIENT_SECRET` y `ML_REFRESH_TOKEN`. Corré `0011_mercadolibre.sql`.
 
 El refresh token es de un solo uso: Mano guarda el nuevo en cada renovación. Si se pierde (por ejemplo, borrando `ml_auth`), hay que volver a autorizar la app.
+
+## Facturación con ARCA
+
+- **Al cobrar:** cuando se acredita un pago de Mercado Pago, te queda la factura lista para aprobar ("Facturar $150.000 a Juan Pérez").
+- **A mano:** `/facturar 150000 Juan Pérez: diseño de logo`, o "haceme la factura de 150 lucas a Pérez".
+- **Aprobar:** solo con el botón o desde el panel, nunca por voz, porque queda informada en ARCA y solo se anula con nota de crédito.
+- **Al emitir:** te devuelve el número, el CAE y el link del QR para verificarla. El mismo pago no se factura dos veces.
+
+**Fase 0:** Factura C (monotributo) a consumidor final. Desde `ARCA_CF_MAX` pide el DNI (`/facturar 12000000 Juan dni 12345678`). Factura A/B con IVA y el PDF con el QR quedan para más adelante; el link del QR es el oficial y sirve para verificarla.
+
+Cómo funciona: firma el pedido de acceso con el certificado de tu CUIT (CMS armado con la librería estándar y verificado con openssl en los tests), lo manda a WSAA y pide el CAE a WSFEv1 con el próximo número. El ticket de acceso (unas 12 h) queda guardado, porque ARCA no da otro mientras siga vigente.
+
+Puesta en marcha (empezá en homologación):
+1. Generá la clave y el pedido de certificado: `openssl genrsa -out arca.key 2048` y `openssl req -new -key arca.key -subj "/C=AR/O=Tu Negocio/CN=mano/serialNumber=CUIT 20111111112" -out arca.csr`.
+2. **Homologación:** en ARCA, WSASS → creá el certificado con el CSR y asociá el servicio `wsfe`. **Producción:** Administración de Certificados Digitales, y después Administrador de Relaciones → **delegá el servicio "Facturación electrónica" a ese certificado**. Nunca se comparte la clave fiscal.
+3. Dá de alta un **punto de venta de tipo Web Services**.
+4. `.env`: `ARCA_CUIT`, `ARCA_ENV`, `ARCA_CERT_FILE`, `ARCA_KEY_FILE`, `ARCA_PTO_VTA`. Corré `0016_arca.sql` y `make check`: tiene que mostrar el último comprobante.
 
 ## Clientes
 
@@ -303,6 +321,7 @@ Mano lo traduce al comando equivalente y lo corre con las mismas validaciones. L
 | `/cobros` | Lo cobrado en 24 h y 7 días, y los links sin pagar |
 | `/devolver pago [monto]` | Devolución; solo con el botón, nunca por voz |
 | `/envios` | Envíos de Mercado Libre en curso |
+| `/facturar monto cliente: concepto` | Factura C en ARCA; solo con el botón |
 | `/cliente Quién` · `/nota Quién: dato` | Ficha del cliente y notas que Mano usa al responder |
 | `/ausente hasta el lunes` · `/volvi` | Modo ausencia: solo lo crítico, respuesta a clientes aprobada |
 | `/transferir destino monto motivo` | Transferencia; topes duros, solo con el botón (apagada por defecto) |
