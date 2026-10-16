@@ -1,4 +1,4 @@
-.PHONY: run test build watch
+.PHONY: run test build watch check
 
 run:            ## arranca el worker con el .env de la raíz
 	go run ./cmd/mano
@@ -11,3 +11,6 @@ build:          ## binario para Linux (VPS)
 
 watch:          ## registra el watch de Gmail a mano
 	go run ./cmd/mano -gmail-watch
+
+check:          ## prueba cada integración contra el servicio real (no manda mensajes ni llama)
+	go run ./cmd/mano -check

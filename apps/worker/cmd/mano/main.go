@@ -2,6 +2,7 @@
 //
 //	go run ./cmd/mano               # arranca todo
 //	go run ./cmd/mano -gmail-watch  # registra el watch de Gmail y sale
+//	go run ./cmd/mano -check        # prueba cada integración y sale
 package main
 
 import (
@@ -37,6 +38,7 @@ import (
 
 func main() {
 	watchOnly := flag.Bool("gmail-watch", false, "registra el watch de Gmail y sale")
+	check := flag.Bool("check", false, "prueba cada integración contra el servicio real y sale")
 	flag.Parse()
 
 	config.LoadDotenv(os.Getenv("MANO_ENV"), ".env", "../../.env")
@@ -44,6 +46,13 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+
+	if *check {
+		if !runCheck(cfg) {
+			os.Exit(1)
+		}
+		return
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
