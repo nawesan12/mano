@@ -31,7 +31,7 @@ func (a *Agent) SetPayments(p Payments, notifyURL string) { a.pay, a.payNotify =
 // moneyActions mueven plata: se aprueban solo con el botón, nunca por voz.
 // Confiar en una cuenta nueva también: es la puerta de una estafa.
 // Facturar también: queda informado en ARCA y solo se anula con nota de crédito.
-var moneyActions = map[string]bool{"mp.refund": true, "mp.payout": true, "account.trust": true, "arca.invoice": true}
+var moneyActions = map[string]bool{"mp.refund": true, "mp.payout": true, "account.trust": true, "arca.invoice": true, "arca.credit": true}
 
 func chargeMessage(name, desc string, amount float64, url string) string {
 	hi := "Hola"
@@ -136,6 +136,7 @@ func (a *Agent) refund(ctx context.Context, ap store.Approval, by string) string
 		return "No pude devolverlo: " + err.Error()
 	}
 	_ = a.store.Log(ctx, store.LogEntry{Area: "Cobros", Tool: "mp.refund", Summary: fmt.Sprintf("Devolvió %s a %s (pago %s)", mercadopago.Money(ap.Action.Amount), ap.Action.Subject, ap.Action.Ref), Via: "code", ApprovedBy: by})
+	a.creditAfterRefund(ctx, ap.Action.Ref, ap.Action.Amount)
 	return fmt.Sprintf("Listo, devolví %s a %s (%s).", mercadopago.Money(ap.Action.Amount), ap.Action.Subject, status)
 }
 

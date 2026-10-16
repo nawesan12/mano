@@ -823,3 +823,37 @@ func TestPlaybookSetup(t *testing.T) {
 		t.Fatal(w)
 	}
 }
+
+// Devolver un pago facturado propone la nota de crédito asociada; no se puede anular más de lo facturado.
+func TestCreditNoteAfterRefund(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, n, _ := setup(t)
+	inv := &fakeInvoicer{}
+	a.SetInvoicer(inv, InvoiceConfig{CbteTipo: 11, Concepto: 2, CFMax: 10000000})
+	pay := &fakePay{payment: mercadopago.Payment{ID: 77, Status: "approved", TransactionAmount: 150000}}
+	pay.payment.Payer.Email = "juan@mail.com"
+	a.SetPayments(pay, "")
+	db.Set("invoices", []map[string]any{{"id": "inv-1", "tenant_id": tenant, "label": "Factura C 0003-00000124", "cbte_tipo": 11, "number": 124,
+		"customer": "Juan", "total": 150000, "payment_ref": "mp:77", "created_at": "2026-10-10T12:00:00Z"}})
+
+	_, refund := a.ProposeRefund(ctx, "77", 50000)
+	_ = a.OnDecision(ctx, refund.ID, Approve, "panel")
+	if len(n.cards) != 1 {
+		t.Fatal("la devolución de un pago facturado propone la nota de crédito")
+	}
+	if got := a.OnDecision(ctx, n.cards[0], Approve, "panel"); !strings.Contains(got, "anula Factura C 0003-00000124 por $50.000") {
+		t.Fatal(got)
+	}
+	nc := inv.got[0]
+	if nc.CbteTipo != 13 || nc.Assoc == nil || nc.Assoc.Nro != 124 || nc.Assoc.PtoVta != 3 || nc.Total != 50000 {
+		t.Fatalf("%+v %+v", nc, nc.Assoc)
+	}
+	// quedan $100.000 por anular: pedir más se limita a eso
+	_, ap := a.ProposeCreditByNumber(ctx, 124, 999999)
+	if ap == nil || ap.Action.Amount != 100000 {
+		t.Fatalf("%+v", ap)
+	}
+	if msg, ap := a.ProposeCreditByNumber(ctx, 999, 0); ap != nil || !strings.Contains(msg, "No encontré") {
+		t.Fatal(msg)
+	}
+}

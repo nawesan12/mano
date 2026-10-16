@@ -406,6 +406,8 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		return a.trustAccount(ctx, *ap, by)
 	case "arca.invoice":
 		return a.issueInvoice(ctx, *ap, by)
+	case "arca.credit":
+		return a.issueCredit(ctx, *ap, by)
 	case "away.reply":
 		return a.approveAwayReply(ctx, *ap, by)
 	default:

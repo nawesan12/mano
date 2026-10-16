@@ -106,3 +106,95 @@ func (a *Agent) maybeProposeInvoice(ctx context.Context, ev core.Event) {
 		_ = a.notify.ApprovalCard(ctx, *ap)
 	}
 }
+
+// ProposeCredit deja para aprobar la nota de crédito que anula (total o parcialmente) una factura emitida.
+func (a *Agent) ProposeCredit(ctx context.Context, inv *store.Invoiced, amount float64) (string, *store.Approval) {
+	if a.invoicer == nil {
+		return "La facturación con ARCA no está configurada.", nil
+	}
+	credited, err := a.store.CreditedFor(ctx, inv.ID)
+	if err != nil {
+		return "No pude revisar esa factura: " + err.Error(), nil
+	}
+	left := inv.Total - credited
+	if left <= 0 {
+		return inv.Label + " ya está anulada.", nil
+	}
+	if amount <= 0 || amount > left {
+		amount = left
+	}
+	kind := "total"
+	if amount < inv.Total {
+		kind = "parcial"
+	}
+	ap := store.Approval{Area: "Facturación", Risk: "medio", Title: core.Truncate(fmt.Sprintf("Anular %s: nota de crédito por %s", inv.Label, pesos(amount)), 90),
+		Detail: fmt.Sprintf("Nota de crédito C %s a %s, asociada a %s (%s). Queda informada en ARCA.", kind, inv.Customer, inv.Label, pesos(inv.Total)),
+		Action: store.Action{Type: "arca.credit", Amount: amount, Subject: inv.Customer, Ref: inv.ID, Text: inv.Label}}
+	id, err := a.store.CreateApproval(ctx, ap)
+	if err != nil {
+		return "No pude dejarla para que la apruebes: " + err.Error(), nil
+	}
+	ap.ID = id
+	return "", &ap
+}
+
+// ProposeCreditByNumber es /anular 124 [monto].
+func (a *Agent) ProposeCreditByNumber(ctx context.Context, number int, amount float64) (string, *store.Approval) {
+	inv, err := a.store.InvoiceByNumber(ctx, 11, number)
+	if err != nil || inv == nil {
+		return fmt.Sprintf("No encontré la Factura C número %d.", number), nil
+	}
+	return a.ProposeCredit(ctx, inv, amount)
+}
+
+func (a *Agent) issueCredit(ctx context.Context, ap store.Approval, by string) string {
+	if a.invoicer == nil {
+		return "La facturación con ARCA no está configurada."
+	}
+	inv, err := a.store.InvoiceByNumber(ctx, 11, invoiceNumber(ap.Action.Text))
+	if err != nil || inv == nil || inv.ID != ap.Action.Ref {
+		return "No encontré la factura a anular."
+	}
+	nc := arca.Invoice{CbteTipo: 13, Concepto: a.invoiceCfg.Concepto, Total: ap.Action.Amount, DocTipo: 99, Date: time.Now(),
+		Assoc: &arca.Assoc{Tipo: 11, PtoVta: invoicePtoVta(inv.Label), Nro: inv.Number, Date: inv.CreatedAt}}
+	r, err := a.invoicer.Authorize(ctx, nc)
+	if err != nil {
+		return "No pude emitir la nota de crédito: " + err.Error()
+	}
+	label := a.invoicer.Label(13, r.Number)
+	_ = a.store.InsertInvoice(ctx, store.InvoiceRow{Label: label, CbteTipo: 13, Number: r.Number, CAE: r.CAE, CAEExpires: r.Expires,
+		Customer: inv.Customer, Concept: "Anula " + inv.Label, Total: ap.Action.Amount, Credits: inv.ID, QR: a.invoicer.QRURL(nc, r)})
+	_ = a.store.Log(ctx, store.LogEntry{Area: "Facturación", Tool: "arca.credit", Summary: fmt.Sprintf("%s anula %s por %s (CAE %s)", label, inv.Label, pesos(ap.Action.Amount), r.CAE), Via: "code", ApprovedBy: by})
+	return fmt.Sprintf("%s emitida: anula %s por %s. CAE %s.", label, inv.Label, pesos(ap.Action.Amount), r.CAE)
+}
+
+// "Factura C 0003-00000124" → 124 y 3.
+func invoiceNumber(label string) int {
+	i := strings.LastIndex(label, "-")
+	n, _ := strconv.Atoi(strings.TrimLeft(label[i+1:], "0"))
+	return n
+}
+
+func invoicePtoVta(label string) int {
+	f := strings.Fields(label)
+	if len(f) == 0 {
+		return 0
+	}
+	pv, _, _ := strings.Cut(f[len(f)-1], "-")
+	n, _ := strconv.Atoi(strings.TrimLeft(pv, "0"))
+	return n
+}
+
+// creditAfterRefund: si se devolvió un pago facturado, la nota de crédito queda lista para aprobar.
+func (a *Agent) creditAfterRefund(ctx context.Context, paymentID string, amount float64) {
+	if a.invoicer == nil {
+		return
+	}
+	inv, err := a.store.InvoiceByPayment(ctx, "mp:"+paymentID)
+	if err != nil || inv == nil {
+		return
+	}
+	if _, ap := a.ProposeCredit(ctx, inv, amount); ap != nil {
+		_ = a.notify.ApprovalCard(ctx, *ap)
+	}
+}
