@@ -68,6 +68,9 @@ func (a *Agent) Brief(ctx context.Context) (string, error) {
 	if err := a.store.MarkBriefed(ctx, ids); err != nil {
 		return "", err
 	}
+	if a.away(ctx) != nil {
+		return "Mientras no estás, esto pasó:\n" + body + "\n\n" + pend + "\n" + spend, nil
+	}
 	return "Buen día. Esto pasó:\n" + body + "\n\n" + pend + "\n" + spend, nil
 }
 

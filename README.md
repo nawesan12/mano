@@ -161,6 +161,17 @@ Puesta en marcha:
 
 El refresh token es de un solo uso: Mano guarda el nuevo en cada renovación. Si se pierde (por ejemplo, borrando `ml_auth`), hay que volver a autorizar la app.
 
+## Modo ausencia
+
+`/ausente hasta el lunes`, o en tus palabras: "me voy de viaje hasta el 20". Fechas que entiende: "el lunes", "20/10", "3 días", "mañana", hasta 60 días.
+
+- **Llamadas:** solo te llama por lo crítico. Lo importante no te avisa al momento y espera al resumen, que arranca con "Mientras no estás, esto pasó".
+- **Recordatorios:** no te manda recordatorios de pendientes.
+- **Clientes:** si aprobás el mensaje de ausencia (sale como tarjeta y lo podés dictar: `/ausente 20/10: estoy de viaje, te respondo el lunes`), a cada cliente que escriba por WhatsApp se lo manda **una sola vez**. Sin aprobar, no le escribe a nadie.
+- **Al volver:** con `/volvi`, o sola cuando vence, te manda un resumen de cuántas cosas entraron por urgencia, a cuántos clientes les respondió y qué te espera.
+
+Correr `0013_ausencia.sql`.
+
 ## Antifraude: cuentas bancarias
 
 La estafa más común a PyMEs es el mail del "proveedor" con un CBU nuevo. Mano recuerda qué CBU/CVU o alias usó cada remitente (por mail o teléfono, nunca por el nombre, que se falsifica fácil):
@@ -270,6 +281,7 @@ Mano lo traduce al comando equivalente y lo corre con las mismas validaciones. L
 | `/cobros` | Lo cobrado en 24 h y 7 días, y los links sin pagar |
 | `/devolver pago [monto]` | Devolución; solo con el botón, nunca por voz |
 | `/envios` | Envíos de Mercado Libre en curso |
+| `/ausente hasta el lunes` · `/volvi` | Modo ausencia: solo lo crítico, respuesta a clientes aprobada |
 | `/transferir destino monto motivo` | Transferencia; topes duros, solo con el botón (apagada por defecto) |
 | `/silencio 21-8` | Horario en que no te llama (sin argumento, muestra la configuración) |
 | `/llamadas 3` | Máximo de llamadas por día; `off` / `on` para apagarlas o prenderlas |

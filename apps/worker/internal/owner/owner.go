@@ -82,7 +82,7 @@ var chargeRe = regexp.MustCompile(`^(.+?)\s+\$?(\d[\d.,]*[kK]?)\s*(.*)$`)
 
 var factRe = regexp.MustCompile(`(?s)^([^:]{1,60}):\s*(.+)$`)
 
-const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /llamame /silencio 21-8 /llamadas 3. O escribime normal."
+const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /ausente hasta el lunes /volvi /llamame /silencio 21-8 /llamadas 3. O escribime normal."
 
 // HandleText atiende un mensaje de texto del dueño: comandos primero (gratis), después el agente.
 func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
@@ -213,6 +213,23 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			return
 		}
 		_ = ch.ApprovalCard(ctx, *ap)
+	case "ausente", "vacaciones":
+		if args == "" {
+			say("Usalo así: /ausente hasta el lunes, o /ausente 20/10: mensaje para los clientes")
+			return
+		}
+		when, reply, _ := strings.Cut(args, ":")
+		msg, ap := s.Agent.StartAway(ctx, when, reply)
+		say(msg)
+		if ap != nil {
+			_ = ch.ApprovalCard(ctx, *ap)
+		}
+	case "volvi", "volví":
+		if m := s.Agent.EndAway(ctx); m != "" {
+			say(m)
+		} else {
+			say("No estabas en modo ausencia.")
+		}
 	case "envios", "envíos":
 		say(s.shipments(ctx))
 	case "cobros", "saldo", "movimientos":
