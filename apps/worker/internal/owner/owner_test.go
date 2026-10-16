@@ -54,3 +54,17 @@ func TestCallPolicyCommands(t *testing.T) {
 		t.Fatal(said)
 	}
 }
+
+func TestParseTransfer(t *testing.T) {
+	d, amount, reason, problem := ParseTransfer("prov@mail.com 50.000 factura 88")
+	if problem != "" || d.Email != "prov@mail.com" || amount != 50000 || reason != "factura 88" {
+		t.Fatal(d, amount, reason, problem)
+	}
+	d, _, reason, problem = ParseTransfer("0170099-220000067890-12 1500 seña obra titular Juan Pérez dni 12.345.678")
+	if problem != "" || d.CBU != "0170099220000067890"+"12" || d.Holder != "Juan Pérez" || d.DNI != "12345678" || reason != "seña obra" {
+		t.Fatal(d, reason, problem)
+	}
+	if _, _, _, problem := ParseTransfer("prov@mail.com mucho"); problem == "" {
+		t.Fatal("sin monto ni motivo")
+	}
+}

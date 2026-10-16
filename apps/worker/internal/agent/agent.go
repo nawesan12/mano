@@ -60,16 +60,19 @@ type CustomerCaller interface {
 }
 
 type Agent struct {
-	store     *store.Store
-	models    *Models
-	notify    Notifier
-	mail      Mailer
-	wa        WhatsApper
-	caller    Caller
-	pay       Payments
-	payNotify string
-	loc       *time.Location
-	spawn     func(func()) // go f(); los tests lo vuelven síncrono
+	store          *store.Store
+	models         *Models
+	notify         Notifier
+	mail           Mailer
+	wa             WhatsApper
+	caller         Caller
+	pay            Payments
+	payNotify      string
+	transfers      Transfers
+	transferLimits TransferLimits
+	transferNotify string
+	loc            *time.Location
+	spawn          func(func()) // go f(); los tests lo vuelven síncrono
 }
 
 func New(s *store.Store, m *Models, n Notifier, mail Mailer, wa WhatsApper, loc *time.Location) *Agent {
@@ -376,6 +379,8 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		return a.sendCharge(ctx, *ap, by)
 	case "mp.refund":
 		return a.refund(ctx, *ap, by)
+	case "mp.payout":
+		return a.payout(ctx, *ap, by)
 	default:
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", nil)
 		return "Hecho."

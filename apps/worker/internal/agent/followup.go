@@ -62,6 +62,7 @@ func (a *Agent) FollowUp(ctx context.Context, now time.Time) (string, error) {
 	if a.pay != nil {
 		msg = append(msg, a.chargeFollowUp(ctx, now)...)
 	}
+	msg = append(msg, a.CheckPayouts(ctx)...)
 	return strings.Join(msg, "\n"), nil
 }
 

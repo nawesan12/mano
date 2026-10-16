@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 	_ "time/tzdata" // zonas horarias embebidas: funciona igual en cualquier VPS o contenedor
@@ -166,6 +168,34 @@ func main() {
 			notify = cfg.PublicURL + "/webhooks/mercadopago"
 		}
 		ag.SetPayments(mp, notify)
+		if cfg.MPPayoutsEnabled {
+			var key ed25519.PrivateKey
+			if cfg.MPPayoutsKey != "" {
+				if key, err = mercadopago.ParsePrivateKey(cfg.MPPayoutsKey); err != nil {
+					fmt.Fprintln(os.Stderr, "MP_PAYOUTS_KEY_FILE:", err)
+					os.Exit(1)
+				}
+			}
+			payoutNotify := ""
+			if cfg.PublicURL != "" {
+				payoutNotify = cfg.PublicURL + "/webhooks/mercadopago/payouts"
+			}
+			ag.SetTransfers(mercadopago.NewPayouts(mp, key, cfg.MPPayoutsTest), agent.TransferLimits{PerOp: cfg.MPPayoutMaxARS, PerDay: cfg.MPPayoutDayARS}, payoutNotify)
+			// Payouts no firma sus avisos: el aviso solo dispara una consulta a la API, nunca se confía en su cuerpo.
+			var last atomic.Int64
+			srvCfg.Hooks["POST /webhooks/mercadopago/payouts"] = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				if now := time.Now().Unix(); now-last.Swap(now) >= 10 {
+					go func() {
+						c, cancel := context.WithTimeout(ctx, time.Minute)
+						defer cancel()
+						for _, line := range ag.CheckPayouts(c) {
+							_ = notifier.Send(c, line)
+						}
+					}()
+				}
+			})
+		}
 		srvCfg.Hooks["/webhooks/mercadopago"] = &mercadopago.Webhook{Client: mp, Charges: st,
 			Secret: cfg.MPWebhookSecret, Sink: ag, TenantID: cfg.TenantID, Base: ctx}
 	}

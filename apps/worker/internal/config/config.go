@@ -46,6 +46,11 @@ type Config struct {
 	GmailTopic, GmailPushToken                             string
 
 	MPAccessToken, MPWebhookSecret string
+	// Transferencias (Payouts): apagadas por defecto; requieren habilitación de Mercado Pago.
+	MPPayoutsEnabled               bool
+	MPPayoutsKey                   string // PEM PKCS#8 Ed25519 o semilla base64
+	MPPayoutsTest                  bool
+	MPPayoutMaxARS, MPPayoutDayARS float64
 
 	// Google Calendar: usa el mismo OAuth que Gmail (el refresh token tiene que incluir calendar.readonly).
 	CalendarEnabled              bool
@@ -259,6 +264,22 @@ func Load() (Config, error) {
 		if !c.WhatsAppEnabled() {
 			missing = append(missing, "VOICE_ENABLED: las llamadas usan WhatsApp, configurá WA_PHONE_NUMBER_ID, WA_ACCESS_TOKEN y WA_APP_SECRET")
 		}
+	}
+	c.MPPayoutsEnabled = truthy(os.Getenv("MP_PAYOUTS_ENABLED"))
+	if c.MPPayoutsEnabled {
+		if c.MPAccessToken == "" {
+			missing = append(missing, "MP_PAYOUTS_ENABLED: falta MP_ACCESS_TOKEN")
+		}
+		c.MPPayoutsTest = truthy(os.Getenv("MP_PAYOUTS_TEST"))
+		if path := str("MP_PAYOUTS_KEY_FILE", !c.MPPayoutsTest); path != "" {
+			b, err := os.ReadFile(path)
+			if err != nil {
+				missing = append(missing, "MP_PAYOUTS_KEY_FILE: no pude leer "+path)
+			}
+			c.MPPayoutsKey = string(b)
+		}
+		c.MPPayoutMaxARS = num("MP_PAYOUT_MAX_ARS", 500000, "tope por transferencia en pesos")
+		c.MPPayoutDayARS = num("MP_PAYOUT_DAY_MAX_ARS", 1000000, "tope diario de transferencias en pesos")
 	}
 	if c.MPAccessToken != "" && c.MPWebhookSecret == "" {
 		missing = append(missing, "MP_WEBHOOK_SECRET: la clave secreta del webhook de Mercado Pago, para validar la firma")

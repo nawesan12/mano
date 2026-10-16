@@ -462,3 +462,54 @@ func TestRefundNeedsButton(t *testing.T) {
 		t.Fatal(msg)
 	}
 }
+
+type fakeTransfers struct {
+	sent   []string
+	status string
+}
+
+func (f *fakeTransfers) Send(_ context.Context, ref, _ string, d mercadopago.Destination, amount float64, _ string) (mercadopago.PayoutResult, error) {
+	f.sent = append(f.sent, ref+":"+d.Email)
+	return mercadopago.PayoutResult{ID: "POP1", Status: "created"}, nil
+}
+func (f *fakeTransfers) Status(context.Context, string) (mercadopago.PayoutResult, error) {
+	return mercadopago.PayoutResult{ID: "POP1", Status: f.status}, nil
+}
+
+// Una transferencia: topes duros, riesgo alto, nunca por voz, y aviso cuando se acredita.
+func TestPayoutLimitsAndButton(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, _, _ := setup(t)
+	if msg, ap := a.ProposePayout(ctx, mercadopago.Destination{Email: "p@mail.com"}, 1000, "x"); ap != nil || !strings.Contains(msg, "apagadas") {
+		t.Fatal("apagadas por defecto:", msg)
+	}
+	tr := &fakeTransfers{status: "in_process"}
+	a.SetTransfers(tr, TransferLimits{PerOp: 100000, PerDay: 150000}, "")
+	dest := mercadopago.Destination{Email: "prov@mail.com"}
+	if msg, ap := a.ProposePayout(ctx, dest, 200000, "factura"); ap != nil || !strings.Contains(msg, "tope por transferencia") {
+		t.Fatal(msg)
+	}
+	_, ap := a.ProposePayout(ctx, dest, 90000, "factura 88")
+	if ap == nil || ap.Risk != "alto" {
+		t.Fatal("propuesta")
+	}
+	if got := a.OnDecision(ctx, ap.ID, Approve, "voz:5492230000000"); !strings.Contains(got, "botón") || len(tr.sent) != 0 {
+		t.Fatal("por voz no:", got)
+	}
+	if got := a.OnDecision(ctx, ap.ID, Approve, "whatsapp"); !strings.Contains(got, "en camino") || tr.sent[0] != "mano-payout-"+ap.ID+":prov@mail.com" {
+		t.Fatal(got, tr.sent)
+	}
+	if msg, ap := a.ProposePayout(ctx, dest, 90000, "otra"); ap != nil || !strings.Contains(msg, "tope diario") {
+		t.Fatal("90.000 + 90.000 supera el tope diario de 150.000:", msg)
+	}
+	if lines := a.CheckPayouts(ctx); len(lines) != 0 {
+		t.Fatal("sin resultado no avisa")
+	}
+	tr.status = "success"
+	if lines := a.CheckPayouts(ctx); len(lines) != 1 || !strings.Contains(lines[0], "Se acreditó la transferencia de $90.000 a prov@mail.com") {
+		t.Fatal(lines)
+	}
+	if db.Rows("mp_payouts")[0]["final"] != true {
+		t.Fatal("queda cerrada")
+	}
+}
