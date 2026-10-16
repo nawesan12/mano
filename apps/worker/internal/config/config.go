@@ -26,6 +26,10 @@ type Config struct {
 	CheapPriceIn, CheapPriceOut                       float64
 	TopProvider, TopBaseURL, TopKey, TopModel         string
 	TopPriceIn, TopPriceOut                           float64
+	// Memoria con búsqueda por significado (embeddings de 1024 dimensiones, API /embeddings).
+	EmbedProvider, EmbedBaseURL, EmbedKey, EmbedModel string
+	EmbedPrice                                        float64
+
 	// Respaldo: si el proveedor de un nivel falla (caído, sin cupo, sin saldo), se usa este.
 	FallbackProvider, FallbackBaseURL, FallbackKey, FallbackModel string
 	FallbackPriceIn, FallbackPriceOut                             float64
@@ -258,6 +262,15 @@ func Load() (Config, error) {
 		c.FallbackModel = str("FALLBACK_MODEL", true)
 		c.FallbackPriceIn = num("FALLBACK_PRICE_IN", 0, "USD por millón de tokens de entrada")
 		c.FallbackPriceOut = num("FALLBACK_PRICE_OUT", 0, "USD por millón de tokens de salida")
+	}
+	if c.EmbedProvider = provider("EMBED_PROVIDER", false); c.EmbedProvider != "" {
+		if c.EmbedProvider == "anthropic" {
+			missing = append(missing, "EMBED_PROVIDER: Anthropic no tiene embeddings; usá openai, gemini, mistral, together u ollama")
+		}
+		c.EmbedBaseURL = str("EMBED_BASE_URL", false)
+		c.EmbedKey = str("EMBED_API_KEY", false)
+		c.EmbedModel = str("EMBED_MODEL", true)
+		c.EmbedPrice = num("EMBED_PRICE", 0, "USD por millón de tokens de embeddings")
 	}
 	c.TTSBaseURL = strings.TrimRight(str("TTS_BASE_URL", false), "/")
 	if c.TTSBaseURL != "" {

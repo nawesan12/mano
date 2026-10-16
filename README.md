@@ -287,6 +287,17 @@ docker build -t mano-worker apps/worker
 docker run -d --restart=always --env-file .env --network host mano-worker   # host: las llamadas usan UDP
 ```
 
+## Memoria con búsqueda
+
+"¿Qué me dijo Pérez del contrato?", "¿cuándo vence lo de Gómez?" o `/buscar …`: Mano busca en lo que te llegó y te contesta citando de quién y de qué fecha.
+
+- **Con embeddings** (`EMBED_*`, por ejemplo OpenAI `text-embedding-3-small`): cada mail o mensaje que no se ignoró se guarda con su vector en `memory_chunks` (pgvector) y se busca por significado. Funciona aunque no uses las mismas palabras.
+- **Sin embeddings:** busca por palabras en los eventos.
+- Lo encontrado va al modelo como **dato, no instrucciones**. Si el gobernador frena la IA, te muestra los fragmentos tal cual.
+- Los embeddings pasan por el gobernador y quedan en `usage`.
+
+Correr `0019_memoria.sql`.
+
 ## Modelos
 
 Cada nivel (barato para clasificar y resumir, top para redactar y decidir) puede ser de un proveedor distinto: `CHEAP_PROVIDER=gemini`, `TOP_PROVIDER=anthropic`. Con el nombre alcanza, la URL se completa sola. Para un proveedor que no está en la lista, usá `openai-compatible` con su `BASE_URL`.
@@ -347,6 +358,7 @@ Mano lo traduce al comando equivalente y lo corre con las mismas validaciones. L
 | `/devolver pago [monto]` | Devolución; solo con el botón, nunca por voz |
 | `/envios` | Envíos de Mercado Libre en curso |
 | `/facturar monto cliente: concepto` | Factura C en ARCA; solo con el botón |
+| `/buscar pregunta` | Busca en lo que te llegó y responde citando quién y cuándo |
 | `/anular número [monto]` | Nota de crédito C que anula una factura |
 | `/cliente Quién` · `/nota Quién: dato` | Ficha del cliente y notas que Mano usa al responder |
 | `/ausente hasta el lunes` · `/volvi` | Modo ausencia: solo lo crítico, respuesta a clientes aprobada |

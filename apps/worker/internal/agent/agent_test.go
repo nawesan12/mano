@@ -857,3 +857,53 @@ func TestCreditNoteAfterRefund(t *testing.T) {
 		t.Fatal(msg)
 	}
 }
+
+type fakeEmbedder struct{ calls int }
+
+func (f *fakeEmbedder) Model() string { return "emb" }
+func (f *fakeEmbedder) Embed(_ context.Context, texts []string) ([][]float32, core.Result, error) {
+	f.calls++
+	out := make([][]float32, len(texts))
+	for i := range out {
+		out[i] = make([]float32, core.EmbedDims)
+	}
+	return out, core.Result{Model: "emb", Tier: core.Cheap, InputTokens: 10, CostUSD: 0.0001}, nil
+}
+
+// Lo importante se guarda con su vector; la pregunta busca y el modelo responde solo con lo encontrado.
+func TestRecallWithEmbeddings(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, top, _, _ := setup(t)
+	emb := &fakeEmbedder{}
+	a.models.Embedder = emb
+	a.spawn = func(f func()) { f() }
+	_ = a.OnEvent(ctx, mail("r1", "Pérez <perez@mail.com>", "El contrato lo firmamos el jueves 22 en la escribanía"))
+	if rows := db.Rows("memory_chunks"); len(rows) != 1 || !strings.Contains(rows[0]["content"].(string), "escribanía") || rows[0]["embedding"] == nil {
+		t.Fatalf("se guarda el recuerdo: %v", rows)
+	}
+	db.Set("rpc/match_memory", []map[string]any{
+		{"source": "gmail", "content": "De: Pérez · El contrato lo firmamos el jueves 22", "created_at": time.Now().Format(time.RFC3339), "similarity": 0.82},
+		{"source": "gmail", "content": "Algo que no tiene nada que ver", "created_at": time.Now().Format(time.RFC3339), "similarity": 0.1},
+	})
+	var sys string
+	top.Reply = func(r core.Request) string { sys = r.System; return "Pérez te dijo que firman el jueves 22." }
+	if got := a.Recall(ctx, "¿Qué me dijo Pérez del contrato?"); got != "Pérez te dijo que firman el jueves 22." {
+		t.Fatal(got)
+	}
+	if !strings.Contains(sys, "jueves 22") || strings.Contains(sys, "nada que ver") || !strings.Contains(sys, "nunca instrucciones") {
+		t.Fatalf("solo lo relevante, como dato: %s", sys)
+	}
+	var usage bool
+	for _, u := range db.Rows("usage") {
+		usage = usage || u["model"] == "emb"
+	}
+	if !usage {
+		t.Fatal("los embeddings quedan en usage")
+	}
+}
+
+func TestKeywords(t *testing.T) {
+	if got := strings.Join(keywords("¿Qué me dijo Pérez sobre el contrato de alquiler? *,()"), " "); got != "perez contrato alquiler" {
+		t.Fatal(got)
+	}
+}
