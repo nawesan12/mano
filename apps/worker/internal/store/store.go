@@ -364,3 +364,60 @@ func nullable(s string) any {
 	}
 	return s
 }
+
+// ── WhatsApp ───────────────────────────────────────────────
+
+// MarkProcessed registra el id del evento entrante. false = ya se había procesado (reintento de Meta).
+func (s *Store) MarkProcessed(ctx context.Context, messageID string) (bool, error) {
+	var out []struct {
+		ID string `json:"message_id"`
+	}
+	q := url.Values{"on_conflict": {"message_id"}, "select": {"message_id"}}
+	err := s.do(ctx, http.MethodPost, "processed_events", q, []any{map[string]any{"message_id": messageID, "tenant_id": s.tenant}},
+		"resolution=ignore-duplicates,return=representation", &out)
+	return len(out) > 0, err
+}
+
+// TouchContact actualiza la última vez que el contacto escribió: abre la ventana de 24 h.
+func (s *Store) TouchContact(ctx context.Context, phone, name string, isOwner bool, at time.Time) error {
+	row := map[string]any{"tenant_id": s.tenant, "phone": phone, "is_owner": isOwner, "last_inbound_at": at.UTC().Format(time.RFC3339)}
+	if name != "" {
+		row["name"] = name
+	}
+	return s.do(ctx, http.MethodPost, "wa_contacts", url.Values{"on_conflict": {"tenant_id,phone"}}, []any{row}, "resolution=merge-duplicates", nil)
+}
+
+// LastInbound devuelve cuándo escribió por última vez el contacto (cero si nunca).
+func (s *Store) LastInbound(ctx context.Context, phone string) (time.Time, error) {
+	var rows []struct {
+		At *time.Time `json:"last_inbound_at"`
+	}
+	if err := s.do(ctx, http.MethodGet, "wa_contacts", s.q("phone", "eq."+phone, "select", "last_inbound_at"), nil, "", &rows); err != nil {
+		return time.Time{}, err
+	}
+	if len(rows) == 0 || rows[0].At == nil {
+		return time.Time{}, nil
+	}
+	return *rows[0].At, nil
+}
+
+func (s *Store) RecordOutbound(ctx context.Context, wamid, phone, kind, template string) error {
+	return s.do(ctx, http.MethodPost, "wa_messages", nil, map[string]any{
+		"wamid": wamid, "tenant_id": s.tenant, "phone": phone, "kind": kind, "template": nullable(template),
+	}, "", nil)
+}
+
+// UpdateMessageStatus guarda lo que informa Meta: estado, categoría facturada y si se cobró.
+func (s *Store) UpdateMessageStatus(ctx context.Context, wamid, status, category string, billable *bool, errText string) error {
+	patch := map[string]any{"status": status, "updated_at": time.Now().UTC().Format(time.RFC3339)}
+	if category != "" {
+		patch["category"] = category
+	}
+	if billable != nil {
+		patch["billable"] = *billable
+	}
+	if errText != "" {
+		patch["error"] = core.Truncate(errText, 500)
+	}
+	return s.do(ctx, http.MethodPatch, "wa_messages", s.q("wamid", "eq."+wamid), patch, "", nil)
+}
