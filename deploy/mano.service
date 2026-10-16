@@ -1,0 +1,23 @@
+# Alternativa sin Docker: el binario de `make build` como servicio de systemd.
+#   sudo cp ../apps/worker/bin/mano /usr/local/bin/mano
+#   sudo cp mano.service /etc/systemd/system/ && sudo systemctl enable --now mano
+[Unit]
+Description=Mano worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=mano
+EnvironmentFile=/etc/mano/.env
+ExecStart=/usr/local/bin/mano
+Restart=always
+RestartSec=3
+# endurecimiento básico
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/etc/mano
+
+[Install]
+WantedBy=multi-user.target

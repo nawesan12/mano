@@ -274,7 +274,11 @@ Puesta en marcha:
 
 Ajustes por chat: `/silencio 22-7`, `/llamadas 5`, `/llamadas off`, `/regla llamame si escribe Liliana o si entra un pago de más de 500.000`.
 
-## Primera prueba real (checklist)
+## Primera prueba real
+
+Guía paso a paso, con el deploy (Caddy con HTTPS, Docker Compose o systemd) y un `.env` mínimo: [`docs/primera-llamada.md`](docs/primera-llamada.md). Las migraciones se aplican todas con `supabase/aplicar.sh`.
+
+### Checklist
 
 1. Migraciones `0001` a `0008` corridas en Supabase.
 2. En el VPS: `.env` completo y `make check`. Prueba cada integración contra el servicio real: Supabase, Telegram, WhatsApp, permiso de llamada, WebRTC/STUN (IP pública), voz en tiempo real, notas de voz, Google y Mercado Pago. No manda mensajes ni llama. Hasta que no diga "Todo en orden", no sigas.
