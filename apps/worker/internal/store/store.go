@@ -421,3 +421,37 @@ func (s *Store) UpdateMessageStatus(ctx context.Context, wamid, status, category
 	}
 	return s.do(ctx, http.MethodPatch, "wa_messages", s.q("wamid", "eq."+wamid), patch, "", nil)
 }
+
+// ── Seguimiento ────────────────────────────────────────────
+
+// OpenApproval es un pendiente con sus tiempos, para recordar y vencer.
+type OpenApproval struct {
+	Approval
+	CreatedAt  time.Time  `json:"created_at"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	RemindedAt *time.Time `json:"reminded_at"`
+}
+
+func (s *Store) OpenApprovals(ctx context.Context) ([]OpenApproval, error) {
+	var out []OpenApproval
+	q := s.q("status", "eq.pending", "select", approvalCols+",created_at,expires_at,reminded_at", "order", "created_at")
+	return out, s.do(ctx, http.MethodGet, "approvals", q, nil, "", &out)
+}
+
+func (s *Store) MarkReminded(ctx context.Context, ids []string, at time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	q := s.q("id", "in.("+strings.Join(ids, ",")+")")
+	return s.do(ctx, http.MethodPatch, "approvals", q, map[string]any{"reminded_at": at.UTC().Format(time.RFC3339)}, "", nil)
+}
+
+// ExpireApproval vence un pendiente solo si sigue pendiente (mismo cuidado que DecideApproval).
+func (s *Store) ExpireApproval(ctx context.Context, id string) (bool, error) {
+	var out []struct {
+		ID string `json:"id"`
+	}
+	q := s.q("id", "eq."+id, "status", "eq.pending", "select", "id")
+	err := s.do(ctx, http.MethodPatch, "approvals", q, map[string]any{"status": "expired", "decided_by": "vencida", "decided_at": time.Now().UTC().Format(time.RFC3339)}, "return=representation", &out)
+	return len(out) > 0, err
+}

@@ -216,3 +216,43 @@ func TestProposeRuleNeedsApproval(t *testing.T) {
 		t.Fatal("una regla vacía no se propone")
 	}
 }
+
+// Un pendiente viejo se recuerda una sola vez; uno vencido se cierra sin ejecutar nada.
+func TestFollowUpRemindsOnceAndExpires(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, n, m := setup(t)
+	db.Set("call_policy", []map[string]any{{"tenant_id": tenant, "enabled": true, "quiet_from": "21:00", "quiet_to": "08:00", "max_per_day": 3, "retry_after_min": 10, "max_attempts": 2}})
+	now := time.Date(2026, 10, 15, 15, 0, 0, 0, time.UTC)
+	ts := func(d time.Duration) string { return now.Add(d).Format(time.RFC3339) }
+	db.Set("approvals", []map[string]any{
+		{"id": "ap-viejo", "tenant_id": tenant, "status": "pending", "title": "Responder a Gómez", "area": "Inbox", "risk": "bajo", "action": map[string]any{"type": "gmail.reply"}, "created_at": ts(-5 * time.Hour), "expires_at": ts(67 * time.Hour)},
+		{"id": "ap-nuevo", "tenant_id": tenant, "status": "pending", "title": "Responder a Paz", "area": "Inbox", "risk": "bajo", "action": map[string]any{"type": "gmail.reply"}, "created_at": ts(-time.Hour), "expires_at": ts(71 * time.Hour)},
+		{"id": "ap-vencido", "tenant_id": tenant, "status": "pending", "title": "Mandar presupuesto", "area": "Inbox", "risk": "medio", "action": map[string]any{"type": "gmail.reply"}, "created_at": ts(-80 * time.Hour), "expires_at": ts(-8 * time.Hour)},
+	})
+
+	msg, err := a.FollowUp(ctx, now)
+	if err != nil || !strings.Contains(msg, "Responder a Gómez (hace 5 h)") || strings.Contains(msg, "Paz") || !strings.Contains(msg, "Venció sin respuesta, no hice nada: Mandar presupuesto") {
+		t.Fatalf("mensaje: %q %v", msg, err)
+	}
+	if again, _ := a.FollowUp(ctx, now.Add(time.Minute)); again != "" {
+		t.Fatalf("no recuerda dos veces: %q", again)
+	}
+	status := map[string]any{}
+	for _, r := range db.Rows("approvals") {
+		status[r["id"].(string)] = r["status"]
+	}
+	if status["ap-vencido"] != "expired" || status["ap-viejo"] != "pending" {
+		t.Fatalf("estados: %v", status)
+	}
+	if got := a.OnDecision(ctx, "ap-vencido", Approve, "test"); !strings.Contains(got, "ya estaba resuelta") || len(m.replies) != 0 {
+		t.Fatal("lo vencido no se puede aprobar tarde")
+	}
+	if quiet, _ := a.FollowUp(ctx, time.Date(2026, 10, 15, 23, 0, 0, 0, time.UTC)); quiet != "" || len(n.sent) != 0 {
+		t.Fatal("de noche no escribe")
+	}
+
+	closing, err := a.Closing(ctx)
+	if err != nil || !strings.Contains(closing, "Venció sin respuesta: Mandar presupuesto") || !strings.Contains(closing, "Quedan 2") {
+		t.Fatalf("cierre: %q %v", closing, err)
+	}
+}

@@ -77,6 +77,14 @@ Puesta en marcha:
    La variable no puede ir ni al principio ni al final del cuerpo. Mantenela seca y transaccional: si suena promocional, Meta la recategoriza como marketing y cuesta más.
 4. Correr `supabase/migrations/0002_whatsapp.sql`.
 
+## Seguimiento
+
+Lo que espera tu ok no se pierde. Todo esto se arma con código, sin IA:
+
+- **Recordatorio:** si un pendiente lleva 4 horas sin respuesta, te lo recuerda una sola vez, en un único mensaje con todo lo que se juntó. No te escribe en horario de silencio.
+- **Vencimiento:** a las 72 horas el pendiente vence, Mano no hace nada y lo deja anotado en el registro. Tocar la tarjeta después ya no tiene efecto.
+- **Cierre del día** (`BRIEF_CLOSE_AT`, por ejemplo `19:00`): qué hizo hoy, qué queda pendiente y cuánto gastó en IA.
+
 ## Mano te llama
 
 Cuando entra algo **crítico** (cambio de CBU, intimación, cliente grande enojado) o algo que vos pediste con una regla, Mano te llama por WhatsApp. Al atender te dice "Hola, soy Mano" y el motivo; le contestás hablando: "mandale que lo verificamos", "descartalo", "no me avises más de este", "anotá que Pérez paga a 60 días". Antes de aprobar te lee qué va a mandar y espera tu sí. Al cortar te deja el resumen por mensaje.
