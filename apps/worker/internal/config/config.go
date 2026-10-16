@@ -46,6 +46,9 @@ type Config struct {
 	GmailTopic, GmailPushToken                             string
 
 	MPAccessToken, MPWebhookSecret string
+
+	// Mercado Libre (ventas y envíos): app de developers.mercadolibre.com.ar y refresh token del vendedor.
+	MLClientID, MLClientSecret, MLRefreshToken string
 	// Transferencias (Payouts): apagadas por defecto; requieren habilitación de Mercado Pago.
 	MPPayoutsEnabled               bool
 	MPPayoutsKey                   string // PEM PKCS#8 Ed25519 o semilla base64
@@ -182,6 +185,9 @@ func Load() (Config, error) {
 		GmailTopic:         str("GMAIL_PUBSUB_TOPIC", false),
 		GmailPushToken:     str("GMAIL_PUSH_TOKEN", false),
 
+		MLClientID:      str("ML_CLIENT_ID", false),
+		MLClientSecret:  str("ML_CLIENT_SECRET", false),
+		MLRefreshToken:  str("ML_REFRESH_TOKEN", false),
 		MPAccessToken:   str("MP_ACCESS_TOKEN", false),
 		MPWebhookSecret: str("MP_WEBHOOK_SECRET", false),
 
@@ -264,6 +270,9 @@ func Load() (Config, error) {
 		if !c.WhatsAppEnabled() {
 			missing = append(missing, "VOICE_ENABLED: las llamadas usan WhatsApp, configurá WA_PHONE_NUMBER_ID, WA_ACCESS_TOKEN y WA_APP_SECRET")
 		}
+	}
+	if c.MLClientID != "" && (c.MLClientSecret == "" || c.MLRefreshToken == "") {
+		missing = append(missing, "Mercado Libre: con ML_CLIENT_ID también van ML_CLIENT_SECRET y ML_REFRESH_TOKEN (scope offline_access)")
 	}
 	c.MPPayoutsEnabled = truthy(os.Getenv("MP_PAYOUTS_ENABLED"))
 	if c.MPPayoutsEnabled {

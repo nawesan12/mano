@@ -26,6 +26,7 @@ import (
 	"github.com/nawesan12/mano/worker/internal/core"
 	"github.com/nawesan12/mano/worker/internal/gmail"
 	"github.com/nawesan12/mano/worker/internal/google"
+	"github.com/nawesan12/mano/worker/internal/mercadolibre"
 	"github.com/nawesan12/mano/worker/internal/mercadopago"
 	"github.com/nawesan12/mano/worker/internal/owner"
 	"github.com/nawesan12/mano/worker/internal/schedule"
@@ -199,6 +200,18 @@ func main() {
 		srvCfg.Hooks["/webhooks/mercadopago"] = &mercadopago.Webhook{Client: mp, Charges: st,
 			Secret: cfg.MPWebhookSecret, Sink: ag, TenantID: cfg.TenantID, Base: ctx}
 	}
+	if cfg.MLClientID != "" {
+		ml := mercadolibre.NewClient(cfg.MLClientID, cfg.MLClientSecret, cfg.MLRefreshToken, st)
+		wh := &mercadolibre.Webhook{Client: ml, AppID: cfg.MLClientID, Sink: ag, Log: st, TenantID: cfg.TenantID, Base: ctx}
+		if id, nick, err := ml.Me(ctx); err != nil {
+			slog.Error("mercadolibre", "err", err)
+		} else {
+			wh.UserID = id // solo se aceptan avisos de este vendedor
+			slog.Info("mercadolibre conectado", "vendedor", nick)
+		}
+		srvCfg.Hooks["/webhooks/mercadolibre"] = wh
+	}
+
 	var cal *calendar.Service
 	if cfg.CalendarEnabled {
 		cal = &calendar.Service{

@@ -42,6 +42,7 @@ apps/worker/            Go
   internal/tts          notas de voz para lo importante (API compatible con OpenAI)
   internal/server       webhooks de Gmail y otros, /health
   internal/mercadopago  pagos: webhook firmado → evento
+  internal/mercadolibre ventas y envíos de Mercado Libre (OAuth con refresh rotativo)
   internal/calendar     Google Calendar: push, sync incremental, movidas, cancelaciones y choques
   internal/schedule     tareas diarias por hora local
 apps/web                panel Next.js (estado, pendientes, registro, gasto)
@@ -136,6 +137,30 @@ Para activarlas:
 
 Puesta en marcha: en Mercado Pago, Tus integraciones → tu app → Webhooks. URL `https://TU-WORKER/webhooks/mercadopago`, evento **Pagos**. Copiá la clave secreta a `MP_WEBHOOK_SECRET` y el access token de producción a `MP_ACCESS_TOKEN`. La firma `x-signature` se valida siempre y los pagos se consultan a la API, nunca se confía en el cuerpo del webhook.
 
+## Mercado Libre: ventas y envíos
+
+La API de Mercado Pago no tiene envíos para Argentina, así que Mano los sigue desde **Mercado Libre** (Mercado Envíos).
+
+| Aviso | Urgencia |
+| --- | --- |
+| Venta nueva | Alta (nota de voz) |
+| Envío listo para despachar ("imprimí la etiqueta") | Alta |
+| Envío no entregado o cancelado | Alta |
+| Venta cancelada | Alta |
+| En camino o entregado | Al resumen |
+
+`/envios` lista lo que está en curso, con el número de seguimiento.
+
+Seguridad: las notificaciones de Mercado Libre no vienen firmadas. Mano solo acepta las de tu app y tu vendedor, y siempre vuelve a consultar el envío o la venta a la API.
+
+Puesta en marcha:
+1. Creá una app en developers.mercadolibre.com.ar con los scopes de lectura y `offline_access`.
+2. Notificaciones: URL `https://TU-WORKER/webhooks/mercadolibre`, tópicos `orders_v2` y `shipments`.
+3. Autorizá la app con tu usuario vendedor y sacá el refresh token.
+4. `.env`: `ML_CLIENT_ID`, `ML_CLIENT_SECRET` y `ML_REFRESH_TOKEN`. Corré `0011_mercadolibre.sql`.
+
+El refresh token es de un solo uso: Mano guarda el nuevo en cada renovación. Si se pierde (por ejemplo, borrando `ml_auth`), hay que volver a autorizar la app.
+
 ## Cómo te avisa
 
 | Urgencia | Ejemplo | Cómo te llega |
@@ -215,6 +240,7 @@ docker run -d --restart=always --env-file .env --network host mano-worker   # ho
 | `/cobrar Quién monto concepto` | Arma un link de Mercado Pago y se lo manda al cliente, si lo aprobás |
 | `/cobros` | Lo cobrado en 24 h y 7 días, y los links sin pagar |
 | `/devolver pago [monto]` | Devolución; solo con el botón, nunca por voz |
+| `/envios` | Envíos de Mercado Libre en curso |
 | `/transferir destino monto motivo` | Transferencia; topes duros, solo con el botón (apagada por defecto) |
 | `/silencio 21-8` | Horario en que no te llama (sin argumento, muestra la configuración) |
 | `/llamadas 3` | Máximo de llamadas por día; `off` / `on` para apagarlas o prenderlas |

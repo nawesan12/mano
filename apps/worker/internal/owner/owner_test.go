@@ -68,3 +68,16 @@ func TestParseTransfer(t *testing.T) {
 		t.Fatal("sin monto ni motivo")
 	}
 }
+
+func TestShipmentsList(t *testing.T) {
+	db := testutil.NewFakeRest(map[string][]map[string]any{"ml_shipments": {
+		{"tenant_id": testutil.Tenant, "id": 5, "status": "ready_to_ship", "receiver": "Ana", "tracking": "TR1", "updated_at": "2026-10-15T10:00:00Z"},
+		{"tenant_id": testutil.Tenant, "id": 6, "status": "delivered", "receiver": "Leo", "updated_at": "2026-10-15T11:00:00Z"},
+	}})
+	srv := httptest.NewServer(db)
+	defer srv.Close()
+	s := &Service{Store: store.New(srv.URL, "service", testutil.Tenant)}
+	if got := s.shipments(context.Background()); got != "Envíos en curso: 1\n· 5 para despachar · Ana · seguimiento TR1" {
+		t.Fatalf("%q", got)
+	}
+}

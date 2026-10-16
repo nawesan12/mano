@@ -82,7 +82,7 @@ var chargeRe = regexp.MustCompile(`^(.+?)\s+\$?(\d[\d.,]*[kK]?)\s*(.*)$`)
 
 var factRe = regexp.MustCompile(`(?s)^([^:]{1,60}):\s*(.+)$`)
 
-const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /llamame /silencio 21-8 /llamadas 3. O escribime normal."
+const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /llamame /silencio 21-8 /llamadas 3. O escribime normal."
 
 // HandleText atiende un mensaje de texto del dueño: comandos primero (gratis), después el agente.
 func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
@@ -207,6 +207,8 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			return
 		}
 		_ = ch.ApprovalCard(ctx, *ap)
+	case "envios", "envíos":
+		say(s.shipments(ctx))
 	case "cobros", "saldo", "movimientos":
 		say(s.Agent.Movements(ctx))
 	case "llamame":
@@ -220,6 +222,40 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 	default:
 		say("No conozco ese comando. " + help)
 	}
+}
+
+var shipStatus = map[string]string{"pending": "pendiente", "handling": "en preparación", "ready_to_ship": "para despachar",
+	"shipped": "en camino", "not_delivered": "no entregado"}
+
+// shipments lista los envíos de Mercado Libre que todavía no terminaron. Sin IA.
+func (s *Service) shipments(ctx context.Context) string {
+	open, err := s.Store.OpenShipments(ctx)
+	if err != nil {
+		return "No pude leer los envíos: " + err.Error()
+	}
+	if len(open) == 0 {
+		return "No hay envíos en curso."
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Envíos en curso: %d", len(open))
+	for i, sh := range open {
+		if i == 10 {
+			fmt.Fprintf(&b, "\n· y %d más", len(open)-10)
+			break
+		}
+		st := shipStatus[sh.Status]
+		if st == "" {
+			st = sh.Status
+		}
+		fmt.Fprintf(&b, "\n· %d %s", sh.ID, st)
+		if sh.Receiver != "" {
+			b.WriteString(" · " + sh.Receiver)
+		}
+		if sh.Tracking != "" {
+			b.WriteString(" · seguimiento " + sh.Tracking)
+		}
+	}
+	return b.String()
 }
 
 // callPolicy ajusta cuándo y cuánto puede llamar Mano. Sin argumentos, muestra cómo está.

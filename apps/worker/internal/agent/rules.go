@@ -13,7 +13,7 @@ import (
 const ruleSystem = `Traducís un pedido del dueño de un negocio a UNA regla de Mano en JSON. No inventes condiciones.
 Formato: {"match":{...},"outcome":{...},"summary":"la regla en una línea, de vos"}
 match (al menos un campo):
-- "source": "gmail" | "whatsapp" | "mercadopago" | "calendar" (solo si lo dice o es obvio: pagos = mercadopago)
+- "source": "gmail" | "whatsapp" | "mercadopago" | "calendar" | "mercadolibre" (solo si lo dice o es obvio: pagos = mercadopago, ventas y envíos = mercadolibre)
 - "kind": solo para pagos: "payment.approved" (acreditado), "payment.rejected", "payment.charged_back" (contracargo)
 - "senderIncludesAny": ["nombres, mails o teléfonos"]
 - "textIncludesAny": ["palabras clave"]
