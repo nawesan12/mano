@@ -26,6 +26,19 @@ func (a *Agent) findContact(ctx context.Context, who string) (store.Contact, str
 	if err != nil {
 		return store.Contact{}, "No pude leer tus contactos: " + err.Error()
 	}
+	// también los clientes con teléfono (por ejemplo, alguien que pagó y dejó su número)
+	seen := map[string]bool{}
+	for _, c := range contacts {
+		seen[c.Phone] = true
+	}
+	if cs, err := a.store.Customers(ctx); err == nil {
+		for _, c := range cs {
+			if c.Phone != "" && !seen[c.Phone] {
+				seen[c.Phone] = true
+				contacts = append(contacts, store.Contact{Phone: c.Phone, Name: c.Name})
+			}
+		}
+	}
 	if d := digitsOnly(who); len(d) >= 8 {
 		for _, c := range contacts {
 			if strings.HasSuffix(c.Phone, d) || strings.HasSuffix(d, c.Phone) {

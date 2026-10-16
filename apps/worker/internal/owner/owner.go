@@ -82,7 +82,7 @@ var chargeRe = regexp.MustCompile(`^(.+?)\s+\$?(\d[\d.,]*[kK]?)\s*(.*)$`)
 
 var factRe = regexp.MustCompile(`(?s)^([^:]{1,60}):\s*(.+)$`)
 
-const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /ausente hasta el lunes /volvi /diagnostico /llamame /silencio 21-8 /llamadas 3. O escribime normal."
+const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /ausente hasta el lunes /volvi /diagnostico /cliente Quién /nota Quién: dato /llamame /silencio 21-8 /llamadas 3. O escribime normal."
 
 // HandleText atiende un mensaje de texto del dueño: comandos primero (gratis), después el agente.
 func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
@@ -213,6 +213,19 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			return
 		}
 		_ = ch.ApprovalCard(ctx, *ap)
+	case "cliente", "ficha":
+		if args == "" {
+			say("Usalo así: /cliente Pérez (o el teléfono o el mail)")
+			return
+		}
+		say(s.Agent.CustomerCard(ctx, args))
+	case "nota":
+		m := factRe.FindStringSubmatch(args)
+		if m == nil {
+			say("Usalo así: /nota Pérez: prefiere que lo llamen a la tarde")
+			return
+		}
+		say(s.Agent.AddNote(ctx, strings.TrimSpace(m[1]), strings.TrimSpace(m[2])))
 	case "diagnostico", "diagnóstico", "semana":
 		t, err := s.Agent.WeeklyReport(ctx)
 		if err != nil {
