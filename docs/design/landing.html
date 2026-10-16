@@ -1,0 +1,894 @@
+<title>Mano</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: editorial left column over a fixed WebGL stage; a particle hand morphs into each section's object as you scroll. */
+:root{
+  --bg:#F2EDE3; --surface:#FBF8F2; --ink:#1A1916; --muted:#5B564D; --line:#D8CFBF;
+  --accent:#A8441F; --accent-ink:#FFFFFF; --particle:#B24A22; --dust:#8C8273;
+  --night:#171614; --night-ink:#F2EDE3; --night-muted:#BDB5A6; --night-line:#34302A; --night-accent:#E58A62;
+  --f-display:'Fraunces','Iowan Old Style',Georgia,serif;
+  --f-body:'Geist','Helvetica Neue',Arial,sans-serif;
+  --f-mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  --t-xs:13px; --t-s:15px; --t-m:17px; --t-l:20px;
+  --t-xl:clamp(26px,3vw,38px); --t-2xl:clamp(40px,6vw,78px); --t-3xl:clamp(54px,9.4vw,136px);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12110F; --surface:#1C1A17; --ink:#EFE9DE; --muted:#A8A194; --line:#34302A;
+  --accent:#E07A52; --accent-ink:#1A1916; --particle:#E58A62; --dust:#6E665A;
+  --night:#0B0A09; --night-ink:#EFE9DE; --night-muted:#B3AB9C; --night-line:#2C2924; --night-accent:#E58A62;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12110F; --surface:#1C1A17; --ink:#EFE9DE; --muted:#A8A194; --line:#34302A;
+  --accent:#E07A52; --accent-ink:#1A1916; --particle:#E58A62; --dust:#6E665A;
+  --night:#0B0A09; --night-ink:#EFE9DE; --night-muted:#B3AB9C; --night-line:#2C2924; --night-accent:#E58A62;
+  color-scheme:dark}
+
+*{box-sizing:border-box}
+html.lenis,html.lenis body{height:auto}
+.lenis.lenis-smooth{scroll-behavior:auto!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:var(--t-m);line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+h1,h2,h3{font-family:var(--f-display);font-weight:400;margin:0;text-wrap:balance}
+p{margin:0}
+
+#stage{position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
+.wrap{position:relative;z-index:2;max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+@media (min-width:700px){.wrap{padding-left:max(40px,env(safe-area-inset-left,0px));padding-right:max(40px,env(safe-area-inset-right,0px))}}
+section{position:static}
+.col{max-width:580px;min-width:0}
+.col.end{margin-left:auto}
+.eyebrow{font-family:var(--f-mono);font-size:var(--t-xs);letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.lede{font-size:var(--t-l);color:var(--muted);max-width:52ch}
+.h2{font-size:var(--t-2xl);line-height:1;letter-spacing:-.035em}
+.h2 em{font-style:italic;color:var(--accent)}
+.wm{display:inline-block;overflow:hidden;vertical-align:top;padding-bottom:.08em;margin-bottom:-.08em}
+.wi{display:inline-block}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:52px;padding:0 26px;border-radius:999px;font:500 var(--t-m)/1 var(--f-body);text-decoration:none;cursor:pointer;border:1px solid transparent;transition:transform .25s ease,background .25s ease}
+.btn:hover{transform:translateY(-2px)}
+.btn-solid{background:var(--accent);color:var(--accent-ink)}
+.btn-line{border-color:var(--ink);color:var(--ink);background:transparent}
+.btn-ink{background:var(--ink);color:var(--bg)}
+
+/* nav */
+.nav{position:fixed;top:0;left:0;right:0;z-index:10;padding-top:env(safe-area-inset-top,0px);background:color-mix(in srgb,var(--bg) 80%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:68px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);font-family:var(--f-display);font-size:26px;font-weight:600;letter-spacing:-.02em}
+.logo svg{width:26px;height:26px;stroke:var(--accent)}
+.nav-links{display:flex;align-items:center;gap:28px;font-size:var(--t-s)}
+.nav-links a{color:var(--ink);text-decoration:none}
+.nav-links a:not(.btn):hover{color:var(--accent)}
+.nav .btn{min-height:44px;padding:0 20px;font-size:var(--t-s)}
+@media (max-width:860px){.nav-links a:not(.btn){display:none}}
+
+/* hero */
+.hero .wrap{padding-block:150px 90px;min-height:min(820px,100svh);display:flex;flex-direction:column;justify-content:center}
+.hero h1{font-size:var(--t-3xl);line-height:.9;letter-spacing:-.045em;font-weight:350;max-width:9ch}
+.hero h1 em{font-style:italic;color:var(--accent);font-weight:400}
+.hero .lede{margin-top:32px}
+.cta-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:40px}
+.fine{margin-top:20px;font-family:var(--f-mono);font-size:var(--t-xs);color:var(--muted)}
+.scroll-cue{margin-top:72px;display:flex;align-items:center;gap:14px;font-family:var(--f-mono);font-size:var(--t-xs);color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.scroll-cue i{display:block;width:64px;height:1px;background:var(--line);position:relative;overflow:hidden}
+.scroll-cue i::after{content:"";position:absolute;inset:0;background:var(--accent);transform:translateX(-100%);animation:cue 2.4s ease-in-out infinite}
+@keyframes cue{50%{transform:translateX(0)}100%{transform:translateX(100%)}}
+.static-hand{display:none}
+.no-webgl .static-hand{display:block;position:absolute;right:max(16px,6vw);top:50%;transform:translateY(-50%);width:min(36vw,420px);stroke:var(--accent);opacity:.9}
+@media (max-width:860px){.no-webgl .static-hand{opacity:.18;width:70vw}}
+
+/* problem */
+.problem .wrap{padding-block:120px}
+.big-text{font-family:var(--f-display);font-size:var(--t-xl);line-height:1.22;letter-spacing:-.015em;max-width:24ch;margin-top:28px}
+.big-text .w{transition:color .2s}
+.problem .kicker{margin-top:40px;font-size:var(--t-l);font-weight:500}
+
+/* demo chat */
+.demo .wrap{padding-block:110px;display:flex;flex-wrap:wrap;gap:56px;align-items:center}
+.demo .col{flex:1 1 380px}
+.chat{flex:1 1 360px;max-width:460px;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:28px;overflow:hidden}
+.chat-head{display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line)}
+.avatar{width:40px;height:40px;border-radius:50%;background:var(--ink);color:var(--bg);display:grid;place-items:center;font-family:var(--f-display);font-weight:600;font-size:18px}
+.chat-head b{display:block;font-weight:600;font-size:16px}
+.chat-head small{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.chat-head small::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:1px;animation:pulse 1.8s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.3}}
+.chat-body{padding:20px;display:flex;flex-direction:column;gap:12px;font-size:var(--t-s);line-height:1.5}
+.bubble{padding:12px 16px;border-radius:18px;max-width:88%}
+.bubble.me{align-self:flex-end;background:var(--ink);color:var(--bg);border-bottom-right-radius:4px;display:flex;gap:10px;align-items:center}
+.bubble.me svg{width:16px;height:16px;stroke:currentColor;flex:none}
+.bubble.mano{align-self:flex-start;background:var(--bg);border-bottom-left-radius:4px}
+.bubble ol{margin:6px 0 0;padding-left:18px}
+.approve{align-self:flex-start;width:88%;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
+.approve .eyebrow{font-size:11px}
+.approve b{display:block;margin-top:6px;font-weight:500}
+.approve span{font-size:14px;color:var(--muted)}
+.approve .row{display:flex;gap:8px;margin-top:12px}
+.approve button{flex:1;min-height:44px;border-radius:10px;font:500 14px var(--f-body);cursor:pointer}
+.approve .ok{background:var(--ink);color:var(--bg);border:0}
+.approve .ed{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.approve .done{display:none;margin-top:12px;font-family:var(--f-mono);font-size:12px;color:var(--accent)}
+.approve.sent .row{display:none}.approve.sent .done{display:block}
+
+/* steps */
+.how .wrap{padding-block:110px}
+.steps{position:relative;margin-top:56px;display:flex;flex-direction:column;gap:44px;padding-left:44px}
+.rail{position:absolute;left:8px;top:6px;bottom:6px;width:1px;background:var(--line)}
+.rail-fill{position:absolute;inset:0;background:var(--accent);transform-origin:top;transform:scaleY(1)}
+.step{position:relative}
+.step::before{content:"";position:absolute;left:-42px;top:10px;width:13px;height:13px;border-radius:50%;background:var(--bg);border:1px solid var(--accent)}
+.step .n{font-family:var(--f-mono);font-size:var(--t-xs);color:var(--accent)}
+.step h3{font-size:var(--t-xl);letter-spacing:-.02em;margin-top:6px}
+.step p{color:var(--muted);margin-top:8px;max-width:46ch}
+
+/* call (night band) */
+.call{background:var(--night);color:var(--night-ink)}
+.call .wrap{padding-block:130px;display:flex;flex-wrap:wrap;gap:56px;align-items:center;justify-content:flex-end}
+.call .col{flex:1 1 420px}
+.call .eyebrow{color:var(--night-accent)}
+.call .h2 em{color:var(--night-accent)}
+.call .lede{color:var(--night-muted)}
+.tiers{margin-top:36px;border-top:1px solid var(--night-line)}
+.tier{display:flex;flex-wrap:wrap;gap:6px 24px;padding:16px 0;border-bottom:1px solid var(--night-line)}
+.tier b{font-family:var(--f-mono);font-weight:400;font-size:var(--t-xs);color:var(--night-accent);width:100px;padding-top:3px;letter-spacing:.06em;text-transform:uppercase}
+.tier span{flex:1 1 220px}
+.callcard{flex:1 1 340px;max-width:420px;min-width:0;border:1px solid var(--night-line);border-radius:28px;padding:30px;background:color-mix(in srgb,var(--night) 70%,#2a2622)}
+.callcard .top{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:12px;color:var(--night-muted);letter-spacing:.08em;text-transform:uppercase}
+.callcard .who{font-family:var(--f-display);font-size:38px;margin-top:18px}
+.wave{display:flex;align-items:center;gap:4px;height:44px;margin-top:14px}
+.wave span{width:4px;border-radius:2px;background:var(--night-accent);height:40%;animation:wave 1.1s ease-in-out infinite}
+@keyframes wave{50%{height:100%}}
+.lines{margin-top:22px;display:flex;flex-direction:column;gap:14px;font-size:var(--t-s);line-height:1.5}
+.lines small{display:block;font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;color:var(--night-accent)}
+.lines .you small{color:var(--night-muted)}
+
+/* horizontal missions */
+.hace{overflow:hidden}
+.hace .wrap{padding-block:110px}
+.hace-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:24px}
+.track{margin-top:56px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+.js-h .track{display:flex;width:max-content;flex-wrap:nowrap}
+.js-h .mission{width:380px}
+.mission{background:var(--surface);border:1px solid var(--line);border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:14px;min-height:320px}
+.mission .area{font-family:var(--f-mono);font-size:var(--t-xs);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.mission q{font-family:var(--f-display);font-style:italic;font-size:28px;line-height:1.15;letter-spacing:-.015em;color:var(--accent);quotes:"“" "”"}
+.mission p{color:var(--muted);margin-top:auto}
+.mission svg{width:28px;height:28px;stroke:var(--ink)}
+
+/* flow */
+.flow .wrap{padding-block:110px}
+.flow-box{position:relative;margin-top:48px;padding-left:44px}
+.flow-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:30px}
+.flow-list li{position:relative}
+.flow-list li::before{content:"";position:absolute;left:-42px;top:7px;width:13px;height:13px;border-radius:50%;border:1px solid var(--accent);background:var(--bg);transition:background .3s}
+.flow-list li.on::before{background:var(--accent)}
+.flow-list b{font-family:var(--f-display);font-weight:400;font-size:24px;letter-spacing:-.015em}
+.flow-list span{display:block;color:var(--muted);font-size:var(--t-s);margin-top:2px}
+.fisco{margin-top:56px;padding:28px;border:1px solid var(--line);border-radius:20px;background:var(--surface)}
+.fisco h3{font-size:26px;letter-spacing:-.015em}
+.fisco ul{margin:14px 0 0;padding-left:18px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+
+/* autonomy */
+.auto .wrap{padding-block:120px}
+.levels{margin-top:48px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;position:relative}
+.level{border:1px solid var(--line);border-radius:16px;padding:20px;background:var(--surface);transition:background .4s,color .4s,border-color .4s}
+.level small{font-family:var(--f-mono);font-size:var(--t-xs);color:var(--muted)}
+.level b{display:block;font-family:var(--f-display);font-weight:400;font-size:24px;margin-top:6px}
+.level span{display:block;font-size:var(--t-s);color:var(--muted);margin-top:4px}
+.level.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.level.on small,.level.on span{color:color-mix(in srgb,var(--bg) 75%,var(--ink))}
+.meter{margin-top:20px;height:2px;background:var(--line);position:relative;overflow:hidden}
+.meter i{position:absolute;inset:0;background:var(--accent);transform-origin:left;transform:scaleX(1)}
+.guards{margin-top:48px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:24px 40px}
+.guards div{display:flex;gap:14px}
+.guards svg{width:22px;height:22px;stroke:var(--accent);flex:none;margin-top:3px}
+.guards strong{font-weight:600}
+
+/* marquee */
+.marquee{overflow:hidden;padding-block:60px;border-block:1px solid var(--line);position:relative;z-index:2}
+.mrow{white-space:nowrap;font-family:var(--f-display);font-size:clamp(60px,11vw,170px);line-height:1;letter-spacing:-.04em;will-change:transform}
+.mrow.out{color:transparent;-webkit-text-stroke:1px var(--ink);font-style:italic}
+
+/* pricing */
+.price .wrap{padding-block:120px}
+.plans{margin-top:56px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+.plan{background:var(--surface);border:1px solid var(--line);border-radius:24px;padding:34px;display:flex;flex-direction:column}
+.plan.hot{border:2px solid var(--accent);padding:33px}
+.plan h3{font-size:28px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.tag{font-family:var(--f-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:var(--accent);color:var(--accent-ink);padding:6px 10px;border-radius:999px}
+.plan .for{color:var(--muted);font-size:var(--t-s);margin-top:6px}
+.amount{margin-top:26px;display:flex;align-items:baseline;gap:8px;font-variant-numeric:tabular-nums}
+.amount b{font-family:var(--f-display);font-weight:400;font-size:58px;letter-spacing:-.04em}
+.amount span{color:var(--muted)}
+.plan ul{list-style:none;margin:26px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.plan li{padding-left:22px;position:relative}
+.plan li::before{content:"";position:absolute;left:0;top:.62em;width:10px;height:1px;background:var(--accent)}
+.plan .btn{margin-top:auto}
+.plan .sp{flex:1;min-height:28px}
+.price .note{margin-top:22px;color:var(--muted);font-size:var(--t-s)}
+
+/* cta */
+.cta{background:var(--night);color:var(--night-ink)}
+.cta h2 em{font-style:italic;color:var(--night-accent)}
+.cta label{color:var(--night-accent)}
+.cta .msg{color:var(--night-muted)}
+footer{border-top:1px solid var(--night-line)}
+.cta .wrap{padding-block:130px;display:flex;flex-wrap:wrap;gap:40px;align-items:flex-end;justify-content:space-between}
+.cta h2{font-size:var(--t-2xl);line-height:.98;letter-spacing:-.04em;flex:1 1 520px;max-width:12ch}
+.cta form{flex:0 1 400px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.cta label{font-family:var(--f-mono);font-size:var(--t-xs);letter-spacing:.08em;text-transform:uppercase}
+.cta .row{display:flex;flex-wrap:wrap;gap:8px}
+.cta input{flex:1 1 200px;min-width:0;min-height:52px;border:0;border-radius:999px;padding:0 20px;font:400 var(--t-m) var(--f-body);background:var(--surface);color:var(--ink)}
+.cta .msg{font-size:var(--t-s);min-height:1.5em}
+
+footer{background:var(--night);color:var(--night-muted)}
+footer .wrap{padding-block:44px;display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;align-items:center;font-size:var(--t-s)}
+footer .logo{color:var(--night-ink)}
+footer nav{display:flex;flex-wrap:wrap;gap:22px}
+footer a{color:var(--night-muted);text-decoration:none}
+footer a:hover{color:var(--night-ink)}
+footer small{font-family:var(--f-mono);font-size:var(--t-xs)}
+
+@media (max-width:860px){
+  .hero .wrap{min-height:auto;padding-block:130px 70px}
+  .col{max-width:none}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  .wave span{height:60%}
+}
+</style>
+
+<canvas id="stage" aria-hidden="true"></canvas>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="Mano, inicio">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+      Mano
+    </a>
+    <nav class="nav-links" aria-label="Secciones">
+      <a href="#como">Cómo funciona</a>
+      <a href="#llamada">Te llama</a>
+      <a href="#hace">Qué hace</a>
+      <a href="#precios">Precios</a>
+      <a class="btn btn-ink" href="#empezar">Probar gratis</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero" id="top" data-shape="hand" data-side="right">
+    <div class="wrap">
+      <svg class="static-hand" viewBox="0 0 24 24" fill="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+      <div class="col">
+        <p class="eyebrow fx">Agente de IA · WhatsApp, Telegram y voz</p>
+        <h1 class="split" style="margin-top:24px">Tu mano derecha que <em>nunca</em> duerme.</h1>
+        <p class="lede fx">Le decís qué querés lograr. Mano lee tu mail, ordena tu agenda, cobra, consigue clientes y atiende por WhatsApp. Cuando algo importa, te llama.</p>
+        <div class="cta-row fx">
+          <a class="btn btn-solid" href="#empezar">Empezar gratis</a>
+          <a class="btn btn-line" href="#como">Ver cómo trabaja</a>
+        </div>
+        <p class="fine fx">7 días gratis · sin tarjeta · lo configurás en 10 minutos</p>
+        <div class="scroll-cue fx" aria-hidden="true"><i></i>Bajá</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="problem" data-shape="msg" data-side="right" data-alpha="0.55">
+    <div class="wrap">
+      <div class="col">
+        <p class="eyebrow">El problema</p>
+        <p class="big-text scrub-words">Todo el negocio pasa por vos. El WhatsApp que no para, el mail que se acumula, el cobro que nadie volvió a reclamar y el cliente que le escribió primero a otro.</p>
+        <p class="kicker fx">Mano se hace cargo de todo eso.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="demo" id="demo" data-shape="msg" data-side="left" data-alpha="0.18">
+    <div class="wrap">
+      <div class="col">
+        <p class="eyebrow">Así se ve</p>
+        <h2 class="h2 split" style="margin-top:16px">Le hablás como a un <em>empleado</em>.</h2>
+        <p class="lede fx" style="margin-top:24px">Por audio o por texto, desde donde ya chateás. Te contesta corto, con lo que hizo y lo que necesita de vos.</p>
+      </div>
+      <div class="chat" role="group" aria-label="Ejemplo de conversación con Mano">
+        <div class="chat-head">
+          <div class="avatar" aria-hidden="true">M</div>
+          <div><b>Mano</b><small>trabajando · 3 tareas</small></div>
+        </div>
+        <div class="chat-body">
+          <div class="bubble me"><svg viewBox="0 0 16 16" fill="none" stroke-width="1.5" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8" rx="2.5"/><path d="M3 8a5 5 0 0 0 10 0M8 13v2"/></svg>Mano, ¿qué pasó hoy?</div>
+          <div class="bubble mano">Buen día. Tres cosas:
+            <ol>
+              <li>Cobré $340.000 de Pérez. Gómez sigue debiendo hace 30 días.</li>
+              <li>Encontré 12 inmobiliarias nuevas en Mar del Plata; 5 calificadas.</li>
+              <li>Moví tu reunión del jueves, chocaba con el dentista.</li>
+            </ol>
+          </div>
+          <div class="approve" id="approve">
+            <p class="eyebrow">Necesita tu ok</p>
+            <b>Recordatorio a Gómez por $185.000</b>
+            <span>Tono amable, con link de pago.</span>
+            <div class="row">
+              <button class="ok" type="button" id="approveBtn">Enviar</button>
+              <button class="ed" type="button">Editar</button>
+            </div>
+            <p class="done">Enviado. Te aviso cuando pague.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="how" id="como" data-shape="hand" data-side="right">
+    <div class="wrap">
+      <div class="col">
+        <p class="eyebrow">Cómo funciona</p>
+        <h2 class="h2 split" style="margin-top:16px">No le das tareas. Le das <em>objetivos</em>.</h2>
+        <div class="steps" id="steps">
+          <div class="rail" aria-hidden="true"><div class="rail-fill"></div></div>
+          <div class="step"><span class="n">Paso 1</span><h3>Conectás tus cuentas</h3><p>WhatsApp, mail, agenda y cobros. Elegís qué puede ver y qué puede hacer en cada una.</p></div>
+          <div class="step"><span class="n">Paso 2</span><h3>Le decís qué querés</h3><p>“Que no se me caiga ningún cobro.” Mano lo convierte en plan, rutina y métrica.</p></div>
+          <div class="step"><span class="n">Paso 3</span><h3>Trabaja, verifica y te reporta</h3><p>Ejecuta, comprueba que salió bien y aprende de cada corrección tuya.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="call" id="llamada" data-shape="phone" data-side="left" data-alpha="0.9">
+    <div class="wrap">
+      <div class="col">
+        <p class="eyebrow">Modo proactivo</p>
+        <h2 class="h2 split" style="margin-top:16px">Cuando algo importa, <em>te llama</em>.</h2>
+        <p class="lede fx" style="margin-top:24px">Vigila tu negocio todo el día. Si entra un mail crítico, un pago grande o leads nuevos, te avisa por el canal justo. En la misma llamada le das órdenes.</p>
+        <div class="tiers">
+          <div class="tier fx"><b>Crítico</b><span>Te llama por teléfono</span></div>
+          <div class="tier fx"><b>Importante</b><span>Nota de voz con botones para actuar</span></div>
+          <div class="tier fx"><b>Normal</b><span>Agrupado en tu resumen diario</span></div>
+        </div>
+      </div>
+      <div class="callcard" role="group" aria-label="Ejemplo de llamada de Mano">
+        <div class="top"><span>Llamada entrante</span><span id="timer">00:42</span></div>
+        <div class="who">Mano</div>
+        <div class="wave" aria-hidden="true">
+          <span style="animation-delay:-.1s"></span><span style="animation-delay:-.5s"></span><span style="animation-delay:-.3s"></span><span style="animation-delay:-.8s"></span><span style="animation-delay:-.2s"></span><span style="animation-delay:-.6s"></span><span style="animation-delay:-.9s"></span><span style="animation-delay:-.4s"></span><span style="animation-delay:-.7s"></span><span style="animation-delay:-.15s"></span><span style="animation-delay:-.55s"></span><span style="animation-delay:-.35s"></span><span style="animation-delay:-.85s"></span><span style="animation-delay:-.25s"></span>
+        </div>
+        <div class="lines">
+          <div class="ln"><small>MANO</small>Te escribió Liliana, está molesta porque no le llegó el contrato. ¿Le respondo?</div>
+          <div class="ln you"><small>VOS</small>Sí, mandale el PDF y decile que la llamo a las cinco.</div>
+          <div class="ln"><small>MANO</small>Hecho. Te bloqueé las 17 h en la agenda.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hace" id="hace" data-shape="doc" data-side="right" data-alpha="0.14">
+    <div class="wrap">
+      <div class="hace-head">
+        <div class="col">
+          <p class="eyebrow">Qué hace</p>
+          <h2 class="h2 split" style="margin-top:16px">Vos decís qué. Mano resuelve <em>cómo</em>.</h2>
+        </div>
+      </div>
+      <div class="track" id="track">
+        <article class="mission"><span class="area">Cobros</span><q>Que no se me caiga ningún cobro</q><p>Cruza facturas con pagos, manda recordatorios escalonados y te avisa si un cliente grande se atrasa.</p></article>
+        <article class="mission"><span class="area">Clientes nuevos</span><q>Conseguime leads de mi rubro</q><p>Busca, califica, arma la lista y redacta el primer contacto. Te dice cuántos encontró y cuáles valen la pena.</p></article>
+        <article class="mission"><span class="area">Atención</span><q>Atendé a mis clientes como yo</q><p>Responde consultas, da turnos y toma pedidos por WhatsApp con tu tono. Lo que no sabe, te lo pasa.</p></article>
+        <article class="mission"><span class="area">Documentos</span><q>Mandale la propuesta a Ramírez</q><p>Arma propuestas y contratos desde tus plantillas, con tu marca, y los manda a firmar.</p></article>
+        <article class="mission"><span class="area">Inbox</span><q>Limpiame el mail</q><p>Separa el ruido, deja respuestas listas y te muestra solo lo que necesita tu decisión.</p></article>
+        <article class="mission"><span class="area">Agenda</span><q>Ordená mi semana</q><p>Detecta choques, protege tus horas de foco y coordina reuniones sin ida y vuelta.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="flow" data-shape="coin" data-side="right">
+    <div class="wrap">
+      <div class="col">
+        <p class="eyebrow">Del mensaje al cobro</p>
+        <h2 class="h2 split" style="margin-top:16px">Un cliente pregunta. Mano <em>cobra</em>.</h2>
+        <p class="lede fx" style="margin-top:24px">El circuito completo, sin que toques nada salvo aprobar.</p>
+        <div class="flow-box" id="flow">
+          <div class="rail" aria-hidden="true"><div class="rail-fill"></div></div>
+          <ol class="flow-list">
+          <li><b>Consulta por WhatsApp</b><span>Responde, califica y pide lo que falta.</span></li>
+          <li><b>Propuesta con tu marca</b><span>Desde tus precios y plantillas.</span></li>
+          <li><b>Seguimiento</b><span>Vuelve a escribir si no hay respuesta.</span></li>
+          <li><b>Contrato y firma</b><span>Plantilla aprobada, firma electrónica.</span></li>
+          <li><b>Link de pago</b><span>Mercado Pago o Stripe, en cuotas si querés.</span></li>
+          <li><b>Factura y conciliación</b><span>Factura electrónica al acreditarse el pago.</span></li>
+          </ol>
+        </div>
+        <div class="fisco fx">
+          <h3>Y el fisco, al día.</h3>
+          <ul>
+            <li>Factura sola al cobrar, conectado a ARCA.</li>
+            <li>Controla topes y te avisa antes de recategorizar.</li>
+            <li>Arma tu calendario de vencimientos con el pago listo.</li>
+            <li>Tu contador revisa y aprueba lo que se presenta.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="auto" id="control" data-shape="shield" data-side="right">
+    <div class="wrap">
+      <div class="col" style="max-width:640px">
+        <p class="eyebrow">Autonomía con control</p>
+        <h2 class="h2 split" style="margin-top:16px">Se gana tu confianza <em>de a poco</em>.</h2>
+        <p class="lede fx" style="margin-top:24px">Cada área tiene su nivel. Cuando aprobás muchas veces sin corregir, Mano te propone hacerlo solo.</p>
+      </div>
+      <div class="levels" id="levels">
+        <div class="level on"><small>Nivel 0</small><b>Observa</b><span>Detecta y sugiere.</span></div>
+        <div class="level on"><small>Nivel 1</small><b>Prepara</b><span>Deja todo listo para tu ok.</span></div>
+        <div class="level on"><small>Nivel 2</small><b>Ejecuta y avisa</b><span>Hace lo reversible y te cuenta.</span></div>
+        <div class="level on"><small>Nivel 3</small><b>Piloto automático</b><span>Solo si vos lo habilitás.</span></div>
+      </div>
+      <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+      <div class="guards">
+        <div class="fx"><svg viewBox="0 0 22 22" fill="none" stroke-width="1.6" aria-hidden="true"><rect x="4" y="9.5" width="14" height="10" rx="2"/><path d="M7 9.5V7a4 4 0 0 1 8 0v2.5"/></svg><p><strong>Límites que vos ponés.</strong> Pagos, borrados y contratos siempre piden tu aprobación.</p></div>
+        <div class="fx"><svg viewBox="0 0 22 22" fill="none" stroke-width="1.6" aria-hidden="true"><path d="M4 5h14M4 11h14M4 17h9"/></svg><p><strong>Registro de todo.</strong> Cada acción queda anotada: qué hizo, cuándo y quién la aprobó.</p></div>
+        <div class="fx"><svg viewBox="0 0 22 22" fill="none" stroke-width="1.6" aria-hidden="true"><path d="M11 3l7 3v5c0 4.5-3 7.5-7 8-4-.5-7-3.5-7-8V6z"/></svg><p><strong>Tus datos son tuyos.</strong> Cifrados, aislados por cliente y nunca usados para entrenar modelos.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="marquee" aria-hidden="true" data-shape="hand" data-side="center" data-alpha="0.1">
+    <div class="mrow" id="m1">tu mano derecha · tu mano derecha · tu mano derecha · tu mano derecha ·</div>
+    <div class="mrow out" id="m2">que nunca duerme · que nunca duerme · que nunca duerme · que nunca duerme ·</div>
+  </div>
+
+  <section class="price" id="precios" data-shape="coin" data-side="center" data-alpha="0.08">
+    <div class="wrap">
+      <p class="eyebrow">Precios</p>
+      <h2 class="h2 split" style="margin-top:16px">Menos que un empleado. Trabaja <em>más horas</em>.</h2>
+      <div class="plans">
+        <div class="plan fx">
+          <h3>Solo</h3><p class="for">Para profesionales independientes.</p>
+          <div class="amount"><b>USD 25</b><span>/mes</span></div>
+          <ul><li>WhatsApp, Telegram y voz</li><li>Mail y agenda</li><li>Resumen diario</li><li>Memoria de tu negocio</li></ul>
+          <div class="sp"></div><a class="btn btn-line" href="#empezar">Empezar gratis</a>
+        </div>
+        <div class="plan hot fx">
+          <h3>Pro <span class="tag">Más elegido</span></h3><p class="for">Para negocios que atienden clientes.</p>
+          <div class="amount"><b>USD 69</b><span>/mes</span></div>
+          <ul><li>Todo lo de Solo</li><li>Atención a clientes por WhatsApp</li><li>Llamadas proactivas</li><li>Propuestas, cobros y facturación</li><li>Playbook de tu rubro</li></ul>
+          <div class="sp"></div><a class="btn btn-solid" href="#empezar">Empezar gratis</a>
+        </div>
+        <div class="plan fx">
+          <h3>Equipo</h3><p class="for">Varios agentes, varios usuarios.</p>
+          <div class="amount"><b>USD 199</b><span>/mes</span></div>
+          <ul><li>Todo lo de Pro</li><li>Agentes de ventas, cobros y soporte</li><li>Panel para tu contador</li><li>Reportes de resultados</li></ul>
+          <div class="sp"></div><a class="btn btn-line" href="#empezar">Hablar con nosotros</a>
+        </div>
+      </div>
+      <p class="note">¿Preferís que lo armemos por vos? <a href="#empezar">Plan a medida con configuración incluida</a></p>
+    </div>
+  </section>
+
+  <section class="cta" id="empezar" data-shape="hand" data-side="right" data-alpha="0.95">
+    <div class="wrap">
+      <h2 class="split">Dale una <em>mano</em> a tu negocio.</h2>
+      <form id="lead" novalidate>
+        <label for="wa">Tu WhatsApp</label>
+        <div class="row">
+          <input id="wa" name="wa" type="tel" inputmode="tel" autocomplete="tel" placeholder="+54 9 223 000 0000">
+          <button class="btn btn-solid" type="submit">Que Mano me escriba</button>
+        </div>
+        <p class="msg" id="formMsg" role="status" aria-live="polite">Te escribe en un minuto y lo probás en vivo.</p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="logo">Mano</span>
+    <nav aria-label="Pie de página"><a href="#control">Seguridad</a><a href="#precios">Precios</a><a href="#top">Privacidad</a><a href="#top">Términos</a></nav>
+    <small>heymano.ai · © 2026</small>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://unpkg.com/lenis@1.1.13/dist/lenis.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const hasGsap = typeof gsap !== 'undefined' && typeof ScrollTrigger !== 'undefined';
+  if (hasGsap) gsap.registerPlugin(ScrollTrigger);
+
+  /* ---------- Smooth scroll ---------- */
+  let lenis = null, scrollVel = 0;
+  if (!reduce && hasGsap && typeof Lenis !== 'undefined') {
+    try {
+      lenis = new Lenis({ lerp: 0.085, smoothWheel: true });
+      lenis.on('scroll', (e) => { ScrollTrigger.update(); scrollVel = e.velocity || 0; });
+      gsap.ticker.add((t) => lenis.raf(t * 1000));
+      gsap.ticker.lagSmoothing(0);
+    } catch (e) { lenis = null; }
+  }
+  document.querySelectorAll('a[href^="#"]').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      const id = a.getAttribute('href');
+      if (id.length < 2) return;
+      const t = document.querySelector(id);
+      if (!t) return;
+      e.preventDefault();
+      if (lenis) lenis.scrollTo(t, { offset: -68, duration: 1.4 });
+      else t.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth' });
+    });
+  });
+
+  /* ---------- Particle stage ---------- */
+  const ICONS = {
+    hand: ['M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2','M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2','M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8','M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15'],
+    msg: ['M7.9 20A9 9 0 1 0 4 16.1L2 22Z','M8 12h.01','M12 12h.01','M16 12h.01'],
+    phone: ['M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z','M15 3.5a5.5 5.5 0 0 1 5.5 5.5','M15 7a2 2 0 0 1 2 2'],
+    doc: ['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z','M14 2v4a2 2 0 0 0 2 2h4','M10 9H8','M16 13H8','M16 17H8'],
+    coin: ['M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0','M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8','M12 18V6'],
+    shield: ['M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z','m9 12 2 2 4-4']
+  };
+  const NAMES = Object.keys(ICONS);
+
+  function sampleIcon(paths, n, R) {
+    const S = 360, c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d');
+    g.setTransform(S / 24, 0, 0, S / 24, 0, 0);
+    g.lineWidth = 1.7; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#000';
+    paths.forEach((p) => g.stroke(new Path2D(p)));
+    const d = g.getImageData(0, 0, S, S).data, pts = [];
+    for (let y = 0; y < S; y += 1) for (let x = 0; x < S; x += 1) if (d[(y * S + x) * 4 + 3] > 140) pts.push(x, y);
+    const out = new Float32Array(n * 3), m = pts.length / 2;
+    for (let i = 0; i < n; i++) {
+      const j = (Math.random() * m) | 0;
+      const x = (pts[j * 2] + Math.random()) / S * 2 - 1;
+      const y = -((pts[j * 2 + 1] + Math.random()) / S * 2 - 1);
+      out[i * 3] = x * R;
+      out[i * 3 + 1] = y * R;
+      out[i * 3 + 2] = (Math.random() - 0.5) * 0.16 + Math.cos(x * 1.6) * 0.12;
+    }
+    return out;
+  }
+
+  function initStage() {
+    if (typeof THREE === 'undefined') return null;
+    const canvas = document.getElementById('stage');
+    let renderer;
+    try { renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true }); }
+    catch (e) { return null; }
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    renderer.setPixelRatio(dpr);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 50);
+    camera.position.z = 6;
+
+    const N = window.innerWidth < 700 ? 4200 : 7000, R = 1.25;
+    const targets = {};
+    NAMES.forEach((k) => { targets[k] = sampleIcon(ICONS[k], N, R); });
+
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(N * 3);
+    pos.set(targets.hand);
+    const seeds = new Float32Array(N), jitter = new Float32Array(N * 3), disp = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      seeds[i] = Math.random();
+      jitter[i * 3] = (Math.random() - 0.5) * 2;
+      jitter[i * 3 + 1] = (Math.random() - 0.5) * 2;
+      jitter[i * 3 + 2] = (Math.random() - 0.5) * 2;
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
+
+    const uniforms = {
+      uTime: { value: 0 }, uSize: { value: 3.1 }, uPR: { value: dpr },
+      uColor: { value: new THREE.Color('#B24A22') }, uOpacity: { value: 1 }
+    };
+    const mat = new THREE.ShaderMaterial({
+      uniforms, transparent: true, depthWrite: false,
+      vertexShader: `
+        attribute float aSeed; uniform float uTime, uSize, uPR; varying float vA;
+        void main(){
+          vec3 p = position;
+          p.x += sin(uTime*.8 + aSeed*6.283)*.008;
+          p.y += cos(uTime*.7 + aSeed*12.0)*.008;
+          vec4 mv = modelViewMatrix * vec4(p,1.0);
+          gl_PointSize = uSize * uPR * (.55 + aSeed*.9) * (6.0 / -mv.z);
+          gl_Position = projectionMatrix * mv;
+          vA = .45 + aSeed*.55;
+        }`,
+      fragmentShader: `
+        uniform vec3 uColor; uniform float uOpacity; varying float vA;
+        void main(){
+          float d = length(gl_PointCoord - .5);
+          if (d > .5) discard;
+          gl_FragColor = vec4(uColor, smoothstep(.5,.08,d) * vA * uOpacity);
+        }`
+    });
+    const group = new THREE.Group();
+    const points = new THREE.Points(geo, mat);
+    group.add(points);
+    scene.add(group);
+
+    /* dust layer for depth parallax */
+    const DN = 420, dgeo = new THREE.BufferGeometry(), dpos = new Float32Array(DN * 3), dseed = new Float32Array(DN);
+    for (let i = 0; i < DN; i++) {
+      dpos[i * 3] = (Math.random() - 0.5) * 12;
+      dpos[i * 3 + 1] = (Math.random() - 0.5) * 30;
+      dpos[i * 3 + 2] = -1 - Math.random() * 5;
+      dseed[i] = Math.random();
+    }
+    dgeo.setAttribute('position', new THREE.BufferAttribute(dpos, 3));
+    dgeo.setAttribute('aSeed', new THREE.BufferAttribute(dseed, 1));
+    const dUniforms = { uTime: uniforms.uTime, uSize: { value: 2.2 }, uPR: { value: dpr }, uColor: { value: new THREE.Color('#8C8273') }, uOpacity: { value: .55 } };
+    const dust = new THREE.Points(dgeo, new THREE.ShaderMaterial({ uniforms: dUniforms, transparent: true, depthWrite: false, vertexShader: mat.vertexShader, fragmentShader: mat.fragmentShader }));
+    scene.add(dust);
+
+    function readColors() {
+      const cs = getComputedStyle(document.documentElement);
+      const p = cs.getPropertyValue('--particle').trim(), d = cs.getPropertyValue('--dust').trim();
+      if (p) uniforms.uColor.value.set(p);
+      if (d) dUniforms.uColor.value.set(d);
+    }
+    readColors();
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
+    new MutationObserver(readColors).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    let halfW = 1, halfH = 1, mobile = false;
+    function resize() {
+      const w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+      halfH = Math.tan(THREE.MathUtils.degToRad(17.5)) * 6;
+      halfW = halfH * camera.aspect;
+      mobile = w < 860;
+      const s = Math.min(1, (halfW * 0.92) / R);
+      group.scale.setScalar(s);
+      applySide(currentSide, true);
+    }
+
+    /* morph state */
+    const cur = new Float32Array(N * 3); cur.set(targets.hand);
+    const src = new Float32Array(N * 3); src.set(targets.hand);
+    let dst = targets.hand, curShape = 'hand';
+    const st = { p: 1 };
+    let currentSide = 'right';
+
+    function sideX(side) {
+      if (mobile || side === 'center') return 0;
+      return (side === 'left' ? -1 : 1) * halfW * 0.5;
+    }
+    function applySide(side, instant) {
+      currentSide = side;
+      const x = sideX(side);
+      if (instant || !hasGsap || reduce) group.position.x = x;
+      else gsap.to(group.position, { x, duration: 1.6, ease: 'power3.inOut', overwrite: 'auto' });
+    }
+    function setAlpha(a) {
+      const v = mobile ? Math.min(a, 0.32) : a;
+      if (!hasGsap || reduce) uniforms.uOpacity.value = v;
+      else gsap.to(uniforms.uOpacity, { value: v, duration: 1, ease: 'power2.out', overwrite: 'auto' });
+    }
+    function morphTo(name) {
+      if (name === curShape || !targets[name]) return;
+      curShape = name;
+      src.set(cur);
+      dst = targets[name];
+      if (!hasGsap || reduce) { st.p = 1; return; }
+      st.p = 0;
+      gsap.to(st, { p: 1, duration: 1.7, ease: 'power3.inOut', overwrite: true });
+    }
+
+    /* pointer */
+    const ptr = { x: 0, y: 0, tx: 0, ty: 0, wx: 99, wy: 99, active: false };
+    window.addEventListener('pointermove', (e) => {
+      ptr.tx = (e.clientX / window.innerWidth) * 2 - 1;
+      ptr.ty = -((e.clientY / window.innerHeight) * 2 - 1);
+      ptr.active = true;
+    }, { passive: true });
+    window.addEventListener('pointerleave', () => { ptr.active = false; });
+
+    resize();
+    window.addEventListener('resize', resize);
+
+    let t0 = performance.now(), running = true, raf = 0;
+    document.addEventListener('visibilitychange', () => {
+      running = !document.hidden;
+      if (running) { t0 = performance.now(); raf = requestAnimationFrame(frame); }
+      else cancelAnimationFrame(raf);
+    });
+
+    function frame(now) {
+      if (!running) return;
+      const t = now / 1000;
+      uniforms.uTime.value = reduce ? 0 : t;
+      ptr.x += (ptr.tx - ptr.x) * 0.06;
+      ptr.y += (ptr.ty - ptr.y) * 0.06;
+
+      const p = st.p, amp = Math.sin(Math.PI * p) * 0.45 + Math.min(Math.abs(scrollVel) * 0.004, 0.12);
+      const s = group.scale.x || 1;
+      const mx = ((ptr.x * halfW) - group.position.x) / s, my = (ptr.y * halfH) / s;
+      const rad = 0.42, rad2 = rad * rad;
+      const usePtr = ptr.active && !reduce;
+      for (let i = 0; i < N; i++) {
+        const i3 = i * 3;
+        const bx = src[i3] + (dst[i3] - src[i3]) * p;
+        const by = src[i3 + 1] + (dst[i3 + 1] - src[i3 + 1]) * p;
+        const bz = src[i3 + 2] + (dst[i3 + 2] - src[i3 + 2]) * p;
+        cur[i3] = bx; cur[i3 + 1] = by; cur[i3 + 2] = bz;
+        let fx = 0, fy = 0;
+        if (usePtr) {
+          const dx = bx - mx, dy = by - my, d2 = dx * dx + dy * dy;
+          if (d2 < rad2) { const f = (1 - Math.sqrt(d2) / rad) * 0.28; const inv = 1 / (Math.sqrt(d2) + 1e-4); fx = dx * inv * f; fy = dy * inv * f; }
+        }
+        disp[i3] += (fx - disp[i3]) * 0.12;
+        disp[i3 + 1] += (fy - disp[i3 + 1]) * 0.12;
+        pos[i3] = bx + jitter[i3] * amp + disp[i3];
+        pos[i3 + 1] = by + jitter[i3 + 1] * amp + disp[i3 + 1];
+        pos[i3 + 2] = bz + jitter[i3 + 2] * amp * 1.6;
+      }
+      geo.attributes.position.needsUpdate = true;
+
+      const sy = window.scrollY || 0;
+      group.rotation.y = ptr.x * 0.35 + Math.sin(t * 0.3) * 0.08 * (reduce ? 0 : 1);
+      group.rotation.x = -ptr.y * 0.18;
+      group.position.y = Math.sin(t * 0.6) * 0.04 * (reduce ? 0 : 1);
+      dust.position.y = sy * 0.0016;
+      dust.rotation.y = ptr.x * 0.08;
+
+      renderer.render(scene, camera);
+      raf = requestAnimationFrame(frame);
+    }
+    raf = requestAnimationFrame(frame);
+    return { morphTo, applySide, setAlpha };
+  }
+
+  let stage = null;
+  try { stage = initStage(); } catch (e) { stage = null; }
+  if (!stage) document.documentElement.classList.add('no-webgl');
+
+  /* ---------- Section → shape ---------- */
+  const shapeSections = document.querySelectorAll('[data-shape]');
+  function applySection(el) {
+    if (!stage) return;
+    stage.morphTo(el.dataset.shape);
+    stage.applySide(el.dataset.side || 'right');
+    stage.setAlpha(parseFloat(el.dataset.alpha || '1'));
+  }
+  if (hasGsap) {
+    shapeSections.forEach((el) => {
+      ScrollTrigger.create({
+        trigger: el, start: 'top 55%', end: 'bottom 55%',
+        onToggle: (self) => { if (self.isActive) applySection(el); }
+      });
+    });
+  } else if (stage) {
+    const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) applySection(e.target); }), { rootMargin: '-45% 0px -45% 0px' });
+    shapeSections.forEach((el) => io.observe(el));
+  }
+
+  /* ---------- Approve demo ---------- */
+  const approve = document.getElementById('approve');
+  document.getElementById('approveBtn').addEventListener('click', () => approve.classList.add('sent'));
+
+  /* ---------- Form ---------- */
+  document.getElementById('lead').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = document.getElementById('wa').value.replace(/\D/g, '');
+    const msg = document.getElementById('formMsg');
+    if (v.length < 8) { msg.textContent = 'Revisá el número: escribilo con código de área, por ejemplo +54 9 223 000 0000.'; return; }
+    msg.textContent = 'Demo: este formulario todavía no está conectado, así que tu número no se guardó.';
+  });
+
+  /* ---------- Scroll animations ---------- */
+  if (!hasGsap || reduce) return;
+
+  function splitWords(el) {
+    const walk = (node) => {
+      [...node.childNodes].forEach((n) => {
+        if (n.nodeType === 3) {
+          const frag = document.createDocumentFragment();
+          n.textContent.split(/(\s+)/).forEach((part) => {
+            if (!part) return;
+            if (/^\s+$/.test(part)) { frag.appendChild(document.createTextNode(part)); return; }
+            const m = document.createElement('span'); m.className = 'wm';
+            const i = document.createElement('span'); i.className = 'wi'; i.textContent = part;
+            m.appendChild(i); frag.appendChild(m);
+          });
+          n.replaceWith(frag);
+        } else if (n.nodeType === 1) walk(n);
+      });
+    };
+    walk(el);
+    return el.querySelectorAll('.wi');
+  }
+
+  const hero = document.querySelector('.hero');
+  document.querySelectorAll('.split').forEach((el) => {
+    const words = splitWords(el);
+    const inHero = hero.contains(el);
+    gsap.from(words, {
+      yPercent: 115, duration: inHero ? 1.2 : 1, ease: 'power4.out', stagger: 0.05, delay: inHero ? 0.15 : 0,
+      scrollTrigger: inHero ? null : { trigger: el, start: 'top 88%', once: true }
+    });
+  });
+
+  gsap.from('.hero .fx', { y: 24, opacity: 0, duration: 1, ease: 'power3.out', stagger: 0.08, delay: 0.5 });
+  gsap.utils.toArray('main .fx').forEach((el) => {
+    if (hero.contains(el)) return;
+    gsap.from(el, { y: 36, opacity: 0, duration: 0.9, ease: 'power3.out', scrollTrigger: { trigger: el, start: 'top 90%', once: true } });
+  });
+
+  /* word-by-word light up */
+  document.querySelectorAll('.scrub-words').forEach((el) => {
+    const words = el.textContent.split(' ');
+    el.innerHTML = words.map((w) => `<span class="w">${w}</span>`).join(' ');
+    gsap.fromTo(el.querySelectorAll('.w'), { opacity: 0.22 }, {
+      opacity: 1, stagger: 0.06, ease: 'none',
+      scrollTrigger: { trigger: el, start: 'top 78%', end: 'bottom 40%', scrub: true }
+    });
+  });
+
+  /* chat bubbles */
+  gsap.from('.chat .bubble, .chat .approve', { y: 22, opacity: 0, duration: 0.7, ease: 'back.out(1.6)', stagger: 0.45, scrollTrigger: { trigger: '.chat', start: 'top 72%', once: true } });
+
+  /* step rails */
+  document.querySelectorAll('#steps .rail-fill, #flow .rail-fill').forEach((fill) => {
+    const box = fill.closest('#steps, #flow');
+    gsap.fromTo(fill, { scaleY: 0 }, { scaleY: 1, ease: 'none', scrollTrigger: { trigger: box, start: 'top 70%', end: 'bottom 60%', scrub: true } });
+  });
+  const flowItems = document.querySelectorAll('#flow li');
+  flowItems.forEach((li) => ScrollTrigger.create({ trigger: li, start: 'top 62%', onEnter: () => li.classList.add('on'), onLeaveBack: () => li.classList.remove('on') }));
+
+  /* call lines */
+  gsap.from('.callcard .ln', { x: 24, opacity: 0, duration: 0.8, ease: 'power3.out', stagger: 0.6, scrollTrigger: { trigger: '.callcard', start: 'top 70%', once: true } });
+  const timer = document.getElementById('timer');
+  let secs = 42;
+  ScrollTrigger.create({ trigger: '.call', start: 'top bottom', end: 'bottom top', onToggle: (s) => {
+    clearInterval(timer._iv);
+    if (s.isActive) timer._iv = setInterval(() => { secs++; timer.textContent = '00:' + String(secs % 60).padStart(2, '0'); }, 1000);
+  }});
+
+  /* autonomy meter */
+  const levels = document.querySelectorAll('#levels .level');
+  levels.forEach((l, i) => { if (i) l.classList.remove('on'); });
+  gsap.fromTo('#meter', { scaleX: 0.04 }, {
+    scaleX: 1, ease: 'none',
+    scrollTrigger: { trigger: '#levels', start: 'top 75%', end: 'bottom 35%', scrub: true,
+      onUpdate: (s) => levels.forEach((l, i) => l.classList.toggle('on', s.progress >= i / levels.length)) }
+  });
+
+  /* marquee */
+  gsap.fromTo('#m1', { xPercent: 0 }, { xPercent: -30, ease: 'none', scrollTrigger: { trigger: '.marquee', start: 'top bottom', end: 'bottom top', scrub: true } });
+  gsap.fromTo('#m2', { xPercent: -30 }, { xPercent: 0, ease: 'none', scrollTrigger: { trigger: '.marquee', start: 'top bottom', end: 'bottom top', scrub: true } });
+
+  /* plans parallax lift */
+  gsap.utils.toArray('.plan').forEach((p, i) => {
+    gsap.fromTo(p, { y: 30 + i * 30 }, { y: 0, ease: 'none', scrollTrigger: { trigger: '.plans', start: 'top bottom', end: 'top 40%', scrub: true } });
+  });
+
+  /* horizontal missions (desktop) */
+  const mm = gsap.matchMedia();
+  mm.add('(min-width: 900px)', () => {
+    document.documentElement.classList.add('js-h');
+    const track = document.getElementById('track');
+    const sec = document.getElementById('hace');
+    const dist = () => Math.max(0, track.scrollWidth - track.parentElement.clientWidth + 40);
+    const tw = gsap.to(track, {
+      x: () => -dist(), ease: 'none',
+      scrollTrigger: { trigger: sec, start: 'top top', end: () => '+=' + dist(), pin: true, scrub: 1, invalidateOnRefresh: true, anticipatePin: 1 }
+    });
+    ScrollTrigger.refresh();
+    return () => { document.documentElement.classList.remove('js-h'); tw.scrollTrigger && tw.scrollTrigger.kill(); tw.kill(); gsap.set(track, { x: 0 }); };
+  });
+
+  window.addEventListener('load', () => ScrollTrigger.refresh());
+})();
+</script>
