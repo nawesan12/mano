@@ -45,6 +45,8 @@ type Config struct {
 	GoogleClientID, GoogleClientSecret, GoogleRefreshToken string
 	GmailTopic, GmailPushToken                             string
 
+	MPAccessToken, MPWebhookSecret string
+
 	Port     string
 	Location *time.Location
 	BriefAt  string // "07:00"
@@ -171,6 +173,9 @@ func Load() (Config, error) {
 		GmailTopic:         str("GMAIL_PUBSUB_TOPIC", false),
 		GmailPushToken:     str("GMAIL_PUSH_TOKEN", false),
 
+		MPAccessToken:   str("MP_ACCESS_TOKEN", false),
+		MPWebhookSecret: str("MP_WEBHOOK_SECRET", false),
+
 		Port:    def("PORT", "8787"),
 		BriefAt: def("BRIEF_AT", "07:00"),
 		CloseAt: str("BRIEF_CLOSE_AT", false),
@@ -238,6 +243,9 @@ func Load() (Config, error) {
 		if !c.WhatsAppEnabled() {
 			missing = append(missing, "VOICE_ENABLED: las llamadas usan WhatsApp, configurá WA_PHONE_NUMBER_ID, WA_ACCESS_TOKEN y WA_APP_SECRET")
 		}
+	}
+	if c.MPAccessToken != "" && c.MPWebhookSecret == "" {
+		missing = append(missing, "MP_WEBHOOK_SECRET: la clave secreta del webhook de Mercado Pago, para validar la firma")
 	}
 	if c.GmailEnabled() && c.GmailPushToken == "" {
 		missing = append(missing, "GMAIL_PUSH_TOKEN: obligatorio si conectás Gmail")

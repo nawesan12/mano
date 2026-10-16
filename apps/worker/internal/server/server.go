@@ -31,6 +31,8 @@ type Server struct {
 	TenantID  string
 	Base      context.Context
 	WhatsApp  http.Handler // nil si WhatsApp no está conectado
+	// Otros webhooks (Mercado Pago, Calendar…): ruta → handler. Cada uno valida su firma.
+	Hooks map[string]http.Handler
 
 	gmailMu sync.Mutex // procesa los push de a uno: el historyId es secuencial
 }
@@ -44,6 +46,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /webhooks/gmail", s.gmailPush)
 	if s.WhatsApp != nil {
 		mux.Handle("/webhooks/whatsapp", s.WhatsApp)
+	}
+	for path, h := range s.Hooks {
+		mux.Handle(path, h)
 	}
 	return mux
 }
