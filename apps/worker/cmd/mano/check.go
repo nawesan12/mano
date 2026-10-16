@@ -9,6 +9,7 @@ import (
 
 	"github.com/nawesan12/mano/worker/internal/config"
 	"github.com/nawesan12/mano/worker/internal/google"
+	"github.com/nawesan12/mano/worker/internal/mercadolibre"
 	"github.com/nawesan12/mano/worker/internal/mercadopago"
 	"github.com/nawesan12/mano/worker/internal/store"
 	"github.com/nawesan12/mano/worker/internal/telegram"
@@ -107,6 +108,13 @@ func runCheck(cfg config.Config) bool {
 		report("Mercado Pago", err, nick)
 	} else {
 		skip("Mercado Pago", "sin configurar")
+	}
+
+	if cfg.MLClientID != "" {
+		_, nick, err := mercadolibre.NewClient(cfg.MLClientID, cfg.MLClientSecret, cfg.MLRefreshToken, st).Me(ctx)
+		report("Mercado Libre", err, nick)
+	} else {
+		skip("Mercado Libre", "sin configurar")
 	}
 
 	if ok {
