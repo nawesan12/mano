@@ -260,6 +260,20 @@ func main() {
 		})
 	}
 
+	// Diagnóstico de la semana: los lunes, cuánto te ahorró y cuánto costó.
+	schedule.Daily(ctx, "diagnostico", "09:00", cfg.Location, func(c context.Context) {
+		if time.Now().In(cfg.Location).Weekday() != time.Monday {
+			return
+		}
+		text, err := ag.WeeklyReport(c)
+		if err == nil {
+			err = notifier.Send(c, text)
+		}
+		if err != nil {
+			slog.Error("diagnostico", "err", err)
+		}
+	})
+
 	// Seguimiento: lo que espera tu ok se recuerda una vez y vence a las 72 h.
 	schedule.Every(ctx, "seguimiento", 30*time.Minute, func(c context.Context) {
 		text, err := ag.FollowUp(c, time.Now())

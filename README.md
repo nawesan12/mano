@@ -161,6 +161,16 @@ Puesta en marcha:
 
 El refresh token es de un solo uso: Mano guarda el nuevo en cada renovación. Si se pierde (por ejemplo, borrando `ml_auth`), hay que volver a autorizar la app.
 
+## Diagnóstico semanal
+
+Los lunes a las 9, o cuando lo pidas con `/diagnostico` ("¿cuánto me ahorraste?"), Mano te manda cómo fue la semana:
+
+- cuántas cosas entraron y qué porcentaje resolvió sin IA;
+- qué hizo: respuestas, llamadas, cobros y cuentas sospechosas frenadas;
+- cuánto tiempo te ahorró y cuánto costó (IA y llamadas).
+
+Sale de los datos, sin IA. El ahorro usa minutos por tarea a la vista y conservadores, en `internal/agent/report.go`: 1 min por mensaje clasificado, 6 por respuesta, 3 por llamada, 5 por link de cobro, 10 por fraude frenado. Cada semana queda guardada y el panel la muestra en **Diagnóstico**. Correr `0014_diagnostico.sql`.
+
 ## Modo ausencia
 
 `/ausente hasta el lunes`, o en tus palabras: "me voy de viaje hasta el 20". Fechas que entiende: "el lunes", "20/10", "3 días", "mañana", hasta 60 días.

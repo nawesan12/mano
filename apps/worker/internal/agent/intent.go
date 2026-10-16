@@ -10,7 +10,7 @@ import (
 )
 
 // actionHint: solo si el texto suena a pedido de acción se gasta el clasificador. Charla normal, gratis.
-var actionHint = regexp.MustCompile(`\b(viaj|vacacion|ausent|volvi|cobr|llam|transfer|devol|reembols|record|acorda|anota|avisa|avises|silencio|pagale|pasale|mandale|regla|envio|pendiente|resumen|gasto)`)
+var actionHint = regexp.MustCompile(`\b(viaj|vacacion|ausent|volvi|cobr|llam|transfer|devol|reembols|record|acorda|anota|avisa|avises|silencio|pagale|pasale|mandale|regla|envio|pendiente|resumen|gasto|ahorr|semana|diagnost)`)
 
 const intentSystem = `Traducís un pedido del dueño de un negocio a UNA acción de Mano en JSON. Si no es un pedido de acción, {"accion":"ninguna"}.
 Acciones (usá solo estos campos):
@@ -24,7 +24,7 @@ Acciones (usá solo estos campos):
 - {"accion":"silencio","desde":"22:00","hasta":"07:00"}  (horario sin llamadas)
 - {"accion":"ausente","hasta":"el lunes | 20/10 | 3 días","mensaje":"para los clientes, solo si lo dicta"}  (viaje, vacaciones, enfermedad)
 - {"accion":"volvi"}  (terminó la ausencia)
-- {"accion":"consulta","que":"cobros|envios|pendientes|resumen|gasto"}
+- {"accion":"consulta","que":"cobros|envios|pendientes|resumen|gasto|diagnostico"}  (diagnostico = cuánto me ahorraste, cómo fue la semana)
 Montos en pesos como número: "150 lucas" = 150000, "1,5 palos" = 1500000. No inventes datos que no estén.`
 
 type intent struct {
@@ -118,7 +118,7 @@ func (i intent) command(original string) (string, bool) {
 		return "/volvi", true
 	case "consulta":
 		switch i.Que {
-		case "cobros", "envios", "pendientes", "resumen", "gasto":
+		case "cobros", "envios", "pendientes", "resumen", "gasto", "diagnostico":
 			return "/" + i.Que, true
 		}
 	}

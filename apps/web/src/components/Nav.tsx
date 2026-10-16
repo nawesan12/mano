@@ -9,6 +9,7 @@ const items = [
   { href: '/cobros', label: 'Cobros' },
   { href: '/reglas', label: 'Reglas' },
   { href: '/memoria', label: 'Memoria' },
+  { href: '/diagnostico', label: 'Diagnóstico' },
   { href: '/registro', label: 'Registro' },
 ];
 

@@ -662,3 +662,35 @@ func TestAwayMode(t *testing.T) {
 		t.Fatal("el resumen sale una vez")
 	}
 }
+
+func TestWeeklyReport(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, _, _ := setup(t)
+	recent := time.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)
+	old := time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	ev := func(u, via, at string) map[string]any {
+		return map[string]any{"tenant_id": tenant, "urgency": u, "triaged_via": via, "received_at": at}
+	}
+	db.Set("events", []map[string]any{ev("ignore", "rule", recent), ev("ignore", "rule", recent), ev("high", "classifier", recent), ev("critical", "rule", recent), ev("high", "rule", old)})
+	db.Set("actions_log", []map[string]any{{"tenant_id": tenant, "tool": "gmail.reply", "created_at": recent}, {"tenant_id": tenant, "tool": "mp.link", "created_at": recent}})
+	db.Set("calls", []map[string]any{{"tenant_id": tenant, "status": "completed", "duration_s": 95, "party": "owner", "wa_cost_usd": 0.02, "created_at": recent}})
+	db.Set("mp_charges", []map[string]any{{"tenant_id": tenant, "status": "paid", "amount": 150000, "created_at": recent}})
+	db.Set("usage", []map[string]any{{"tenant_id": tenant, "cost_usd": 0.4, "created_at": recent}, {"tenant_id": tenant, "cost_usd": 9.0, "created_at": old}})
+
+	text, err := a.WeeklyReport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"entraron 4 cosas y 75% las resolví sin IA", "Respondí 1 mensaje, te llamé 1 vez y cobraste $150.000 por 1 link", "Me costó USD 0.40 de IA y USD 0.02 de llamadas"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("falta %q en:\n%s", want, text)
+		}
+	}
+	// 2 eventos x 1 + 2 ignorados x 0,5 + 1 respuesta x 6 + 1 llamada x 3 + 1 link x 5 = 17 min
+	if !strings.Contains(text, "Te ahorré unas 17 min") {
+		t.Fatal(text)
+	}
+	if len(db.Rows("reports")) != 1 {
+		t.Fatal("queda guardado para el panel")
+	}
+}
