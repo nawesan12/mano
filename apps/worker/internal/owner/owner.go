@@ -89,9 +89,15 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 	say := func(t string) { _ = ch.Send(ctx, t) }
 	cmd, args, isCmd := ParseCommand(text)
 	if !isCmd {
-		if strings.TrimSpace(text) != "" {
-			say(s.Agent.OnOwnerMessage(ctx, text))
+		if strings.TrimSpace(text) == "" {
+			return
 		}
+		// "cobrale 150 lucas a Pérez" → /cobrar … : mismas validaciones y la misma tarjeta para aprobar
+		if c, ok := s.Agent.Route(ctx, text); ok {
+			s.HandleText(ctx, &understood{Channel: ch, cmd: c}, c)
+			return
+		}
+		say(s.Agent.OnOwnerMessage(ctx, text))
 		return
 	}
 	switch cmd {
@@ -330,7 +336,32 @@ func (s *Service) HandleAudio(ctx context.Context, ch Channel, audio []byte, fil
 		s.HandleText(ctx, ch, text)
 		return
 	}
-	_ = ch.Send(ctx, "Entendí: \""+core.Truncate(text, 200)+"\"\n\n"+s.Agent.OnOwnerMessage(ctx, text))
+	heard := "Entendí: \"" + core.Truncate(text, 200) + "\""
+	if c, ok := s.Agent.Route(ctx, text); ok {
+		s.HandleText(ctx, &understood{Channel: ch, cmd: c, heard: heard}, c)
+		return
+	}
+	_ = ch.Send(ctx, heard+"\n\n"+s.Agent.OnOwnerMessage(ctx, text))
+}
+
+// understood antepone lo que se entendió a la respuesta (en el mismo mensaje: un turno, un mensaje).
+// Las tarjetas no lo necesitan: ya muestran qué se va a hacer.
+type understood struct {
+	Channel
+	cmd, heard string // heard: lo transcripto, si vino por audio
+	done       bool
+}
+
+func (u *understood) Send(ctx context.Context, text string) error {
+	if !u.done {
+		u.done = true
+		prefix := "Entendí: " + u.cmd
+		if u.heard != "" {
+			prefix = u.heard + " → " + u.cmd
+		}
+		text = prefix + "\n" + text
+	}
+	return u.Channel.Send(ctx, text)
 }
 
 // Fallback avisa por el primer canal que funcione (por ejemplo WhatsApp con la ventana

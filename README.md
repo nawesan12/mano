@@ -224,6 +224,12 @@ docker build -t mano-worker apps/worker
 docker run -d --restart=always --env-file .env --network host mano-worker   # host: las llamadas usan UDP
 ```
 
+## Hablale normal
+
+No hace falta saberse los comandos: "cobrale 150 lucas a Pérez por la factura 123", "llamalo a Gómez para recordarle que vence hoy", "acordate que los honorarios son 3% más IVA", "¿cómo vienen los cobros?". Funciona igual con audios.
+
+Mano lo traduce al comando equivalente y lo corre con las mismas validaciones. Lo que mueve plata o habla con un cliente sigue saliendo como **tarjeta para aprobar**. El clasificador barato solo se usa si el texto suena a un pedido; la charla normal no lo gasta. La respuesta arranca con lo que entendió ("Entendí: /cobrar Pérez 150000 factura 123"), en el mismo mensaje.
+
 ## Comandos del bot
 
 | Comando | Qué hace |

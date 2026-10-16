@@ -513,3 +513,47 @@ func TestPayoutLimitsAndButton(t *testing.T) {
 		t.Fatal("queda cerrada")
 	}
 }
+
+func TestIntentCommands(t *testing.T) {
+	cases := []struct {
+		in   intent
+		want string
+	}{
+		{intent{Accion: "cobrar", Quien: "Pérez", Monto: 150000, Concepto: "factura 123"}, "/cobrar Pérez 150000 factura 123"},
+		{intent{Accion: "llamar", Quien: "Gómez: x", Objetivo: "recordarle\nel pago"}, "/llamar Gómez x: recordarle el pago"},
+		{intent{Accion: "transferir", Destino: "prov@mail.com", Monto: 5e4, Motivo: "factura 88"}, "/transferir prov@mail.com 50000 factura 88"},
+		{intent{Accion: "devolver", Pago: "123", Monto: 0}, "/devolver 123"},
+		{intent{Accion: "recordar", Tema: "Honorarios", Dato: "3% más IVA"}, "/recordar Honorarios: 3% más IVA"},
+		{intent{Accion: "consulta", Que: "cobros"}, "/cobros"},
+		{intent{Accion: "silencio", Desde: "22:00", Hasta: "07:00"}, "/silencio 22:00-07:00"},
+	}
+	for _, c := range cases {
+		got, ok := c.in.command("x")
+		if !ok || got != c.want {
+			t.Errorf("%+v → %q", c.in, got)
+		}
+	}
+	for _, bad := range []intent{{Accion: "cobrar", Quien: "Pérez"}, {Accion: "consulta", Que: "borrar todo"}, {Accion: "ninguna"}, {Accion: "/llamadas off"}} {
+		if _, ok := bad.command("x"); ok {
+			t.Errorf("no debería armar comando: %+v", bad)
+		}
+	}
+	// barras en los campos no inyectan otro comando
+	if got, _ := (intent{Accion: "recordar", Tema: "x", Dato: "/transferir a@b.com 1 y"}).command(""); got != "/recordar x: transferir a@b.com 1 y" {
+		t.Fatal(got)
+	}
+}
+
+func TestRouteOnlySpendsOnActions(t *testing.T) {
+	ctx := context.Background()
+	a, _, cheap, _, _, _ := setup(t)
+	cheap.Reply = func(core.Request) string {
+		return `{"accion":"cobrar","quien":"Pérez","monto":150000,"concepto":"factura 123"}`
+	}
+	if _, ok := a.Route(ctx, "¿Cómo viene el día?"); ok || cheap.Calls != 0 {
+		t.Fatal("la charla no gasta el clasificador")
+	}
+	if c, ok := a.Route(ctx, "Cobrale 150 lucas a Pérez por la factura 123"); !ok || c != "/cobrar Pérez 150000 factura 123" || cheap.Calls != 1 {
+		t.Fatalf("%q %v", c, ok)
+	}
+}
