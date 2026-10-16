@@ -27,6 +27,7 @@ import (
 	"github.com/nawesan12/mano/worker/internal/store"
 	"github.com/nawesan12/mano/worker/internal/stt"
 	"github.com/nawesan12/mano/worker/internal/telegram"
+	"github.com/nawesan12/mano/worker/internal/tts"
 	"github.com/nawesan12/mano/worker/internal/voice"
 	"github.com/nawesan12/mano/worker/internal/whatsapp"
 )
@@ -68,6 +69,9 @@ func main() {
 	top := core.NewLLM(core.ModelConfig{Tier: core.Top, Provider: cfg.TopProvider, Model: cfg.TopModel, APIKey: cfg.TopKey, BaseURL: cfg.TopBaseURL, PriceIn: cfg.TopPriceIn, PriceOut: cfg.TopPriceOut})
 	models := agent.NewModels(cheap, top, st, core.Caps{DayUSD: cfg.CapDayUSD, MonthUSD: cfg.CapMonthUSD})
 	transcriber := stt.New(cfg.STTBaseURL, cfg.STTKey, cfg.STTModel)
+	if speaker := tts.New(cfg.TTSBaseURL, cfg.TTSKey, cfg.TTSModel, cfg.TTSVoice, cfg.TTSPricePerMChars); speaker != nil {
+		models.TTS = speaker // lo importante llega como nota de voz
+	}
 
 	// Canales hacia el dueño. El preferido primero; el otro como respaldo.
 	var tgClient *telegram.Client

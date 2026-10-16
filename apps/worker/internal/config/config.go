@@ -27,6 +27,10 @@ type Config struct {
 
 	STTBaseURL, STTKey, STTModel string
 
+	// Notas de voz para lo importante (endpoint compatible con OpenAI /audio/speech).
+	TTSBaseURL, TTSKey, TTSModel, TTSVoice string
+	TTSPricePerMChars                      float64
+
 	// Voz: Mano llama al dueño por WhatsApp y habla con un modelo de voz en tiempo real.
 	VoiceEnabled                                bool
 	RealtimeBaseURL, RealtimeKey, RealtimeModel string
@@ -209,6 +213,14 @@ func Load() (Config, error) {
 	default:
 		missing = append(missing, "OWNER_CHANNEL: telegram o whatsapp")
 	}
+	c.TTSBaseURL = strings.TrimRight(str("TTS_BASE_URL", false), "/")
+	if c.TTSBaseURL != "" {
+		c.TTSKey = str("TTS_API_KEY", false)
+		c.TTSModel = def("TTS_MODEL", "gpt-4o-mini-tts")
+		c.TTSVoice = def("TTS_VOICE", "marin")
+		c.TTSPricePerMChars = num("TTS_PRICE_PER_M_CHARS", 0, "USD por millón de caracteres (tarifa vigente)")
+	}
+
 	c.VoiceEnabled = truthy(os.Getenv("VOICE_ENABLED"))
 	if c.VoiceEnabled {
 		c.RealtimeBaseURL = def("REALTIME_BASE_URL", "https://api.openai.com/v1")

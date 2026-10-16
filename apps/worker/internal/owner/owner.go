@@ -231,4 +231,19 @@ func (f Fallback) ApprovalCard(ctx context.Context, a store.Approval) error {
 	return last
 }
 
+// VoiceSender es un canal que manda notas de voz.
+type VoiceSender interface {
+	SendVoice(ctx context.Context, audio []byte, caption string) error
+}
+
+// SendVoice manda la nota por el primer canal que pueda; si ninguno manda audio, va el texto.
+func (f Fallback) SendVoice(ctx context.Context, audio []byte, caption string) error {
+	for _, c := range f {
+		if v, ok := c.(VoiceSender); ok && v.SendVoice(ctx, audio, caption) == nil {
+			return nil
+		}
+	}
+	return f.Send(ctx, caption)
+}
+
 var errNoChannel = fmt.Errorf("no hay canal configurado para avisarle al dueño")

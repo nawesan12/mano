@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"regexp"
 	"strings"
 	"time"
@@ -133,6 +135,49 @@ func (c *Client) SendTemplate(ctx context.Context, to, name, lang string, params
 	return err
 }
 
+// UploadMedia sube un archivo y devuelve su id para mandarlo.
+func (c *Client) UploadMedia(ctx context.Context, data []byte, mime, filename string) (string, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	_ = w.WriteField("messaging_product", "whatsapp")
+	_ = w.WriteField("type", mime)
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Disposition", `form-data; name="file"; filename="`+filename+`"`)
+	h.Set("Content-Type", mime)
+	fw, _ := w.CreatePart(h)
+	_, _ = fw.Write(data)
+	_ = w.Close()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/"+c.phoneID+"/media", &buf)
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	res, err := c.hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	var out struct {
+		ID    string `json:"id"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&out)
+	if res.StatusCode >= 300 || out.ID == "" {
+		return "", fmt.Errorf("whatsapp media %d: %s", res.StatusCode, out.Error.Message)
+	}
+	return out.ID, nil
+}
+
+// SendVoiceNote manda un audio como nota de voz (Ogg/Opus). Solo dentro de la ventana.
+func (c *Client) SendVoiceNote(ctx context.Context, to string, audio []byte) error {
+	id, err := c.UploadMedia(ctx, audio, "audio/ogg", "mano.ogg")
+	if err != nil {
+		return err
+	}
+	_, err = c.send(ctx, to, "audio", "", map[string]any{"type": "audio", "audio": map[string]any{"id": id, "voice": true}})
+	return err
+}
+
 // WindowOpen dice si el contacto escribió en las últimas 24 h.
 func (c *Client) WindowOpen(ctx context.Context, phone string) bool {
 	if c.store == nil {
@@ -207,6 +252,15 @@ func (o *OwnerChannel) notice(ctx context.Context, text string) error {
 		return ErrWindowClosed
 	}
 	return o.c.SendTemplate(ctx, o.phone, o.template, o.language, text)
+}
+
+// SendVoice manda la nota de voz si la ventana está abierta; si no, el aviso por plantilla con el texto.
+// Es un solo mensaje igual que el aviso de texto: la nota reemplaza al texto, no se suma.
+func (o *OwnerChannel) SendVoice(ctx context.Context, audio []byte, caption string) error {
+	if !o.c.WindowOpen(ctx, o.phone) {
+		return o.notice(ctx, caption)
+	}
+	return o.c.SendVoiceNote(ctx, o.phone, audio)
 }
 
 func (o *OwnerChannel) Send(ctx context.Context, text string) error {

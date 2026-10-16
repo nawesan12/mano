@@ -22,8 +22,16 @@ func IsBlocked(err error) (*Blocked, bool) {
 
 // Models es el único punto de acceso a la IA: todo pasa por el gobernador
 // y todo queda registrado en usage.
+// Synth convierte texto en una nota de voz (tts.Client). nil = notas de voz apagadas.
+type Synth interface {
+	Model() string
+	Estimate(text string) float64
+	Synthesize(ctx context.Context, text string) ([]byte, float64, error)
+}
+
 type Models struct {
 	Cheap, Top core.LLM
+	TTS        Synth
 	store      *store.Store
 	fallback   core.Caps
 	OnHalt     func(reason string)
@@ -97,11 +105,31 @@ func (m *Models) Complete(ctx context.Context, want core.Tier, req core.Request,
 
 // AuthorizeVoice pasa una llamada de voz por el gobernador antes de marcar. estUSD es el peor caso (llamada al máximo).
 func (m *Models) AuthorizeVoice(ctx context.Context, estUSD float64, critical bool) error {
+	return m.authorize(ctx, core.Voice, estUSD, critical)
+}
+
+// Speak arma una nota de voz pasando por el gobernador y registra su costo.
+func (m *Models) Speak(ctx context.Context, text string, critical bool) ([]byte, error) {
+	if m.TTS == nil {
+		return nil, errors.New("las notas de voz no están configuradas")
+	}
+	if err := m.authorize(ctx, core.Voice, m.TTS.Estimate(text), critical); err != nil {
+		return nil, err
+	}
+	audio, cost, err := m.TTS.Synthesize(ctx, text)
+	if err != nil {
+		return nil, err
+	}
+	_ = m.store.RecordUsage(ctx, core.Result{Tier: core.Voice, Model: m.TTS.Model(), CostUSD: cost}, "")
+	return audio, nil
+}
+
+func (m *Models) authorize(ctx context.Context, tier core.Tier, estUSD float64, critical bool) error {
 	sp, caps, err := m.Status(ctx)
 	if err != nil {
 		return err
 	}
-	d := core.Decide(core.Voice, critical, estUSD, sp, caps)
+	d := core.Decide(tier, critical, estUSD, sp, caps)
 	m.notify(d)
 	if !d.OK {
 		return &Blocked{d.Reason}

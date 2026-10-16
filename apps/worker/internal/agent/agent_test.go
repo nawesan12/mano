@@ -256,3 +256,53 @@ func TestFollowUpRemindsOnceAndExpires(t *testing.T) {
 		t.Fatalf("cierre: %q %v", closing, err)
 	}
 }
+
+type fakeSynth struct{ said []string }
+
+func (f *fakeSynth) Model() string           { return "tts-test" }
+func (f *fakeSynth) Estimate(string) float64 { return 0.001 }
+func (f *fakeSynth) Synthesize(_ context.Context, text string) ([]byte, float64, error) {
+	f.said = append(f.said, text)
+	return []byte("OggS"), 0.001, nil
+}
+
+type voiceNotifier struct {
+	fakeNotifier
+	voices []string
+}
+
+func (v *voiceNotifier) SendVoice(_ context.Context, _ []byte, caption string) error {
+	v.voices = append(v.voices, caption)
+	return nil
+}
+
+// Lo importante llega como nota de voz (sin leer direcciones de mail) y queda en usage; sin TTS, texto.
+func TestHighGoesAsVoiceNote(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, _, _ := setup(t)
+	vn := &voiceNotifier{}
+	a.notify = vn
+	synth := &fakeSynth{}
+	a.models.TTS = synth
+
+	_ = a.OnEvent(ctx, mail("v1", "Ramírez <ramirez@mail.com>", "¿Me pasás presupuesto?"))
+	if len(vn.voices) != 1 || len(vn.sent) != 0 || !strings.HasPrefix(vn.voices[0], "Importante · Ramírez") {
+		t.Fatalf("nota de voz en vez de texto: voces=%v textos=%v", vn.voices, vn.sent)
+	}
+	if !strings.Contains(synth.said[0], "Es de Ramírez.") || strings.Contains(synth.said[0], "@") {
+		t.Fatalf("guion: %q", synth.said[0])
+	}
+	var voice bool
+	for _, u := range db.Rows("usage") {
+		voice = voice || u["tier"] == "voice"
+	}
+	if !voice {
+		t.Fatal("la nota de voz pasa por el gobernador y queda en usage")
+	}
+
+	a.models.TTS = nil
+	_ = a.OnEvent(ctx, mail("v2", "Paz <paz@mail.com>", "¿Me pasás presupuesto?"))
+	if len(vn.voices) != 1 || len(vn.sent) != 1 {
+		t.Fatal("sin TTS va por texto")
+	}
+}

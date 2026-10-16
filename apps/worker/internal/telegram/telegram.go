@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"time"
@@ -68,6 +69,35 @@ func (c *Client) SendMessage(ctx context.Context, chatID, text string, kb *Keybo
 	return c.call(ctx, "sendMessage", p, nil)
 }
 
+// SendVoice manda una nota de voz (Ogg/Opus) con su texto abajo: un solo mensaje.
+func (c *Client) SendVoice(ctx context.Context, chatID string, audio []byte, caption string) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	_ = w.WriteField("chat_id", chatID)
+	_ = w.WriteField("caption", core.Truncate(caption, 1000))
+	fw, _ := w.CreateFormFile("voice", "mano.ogg")
+	_, _ = fw.Write(audio)
+	_ = w.Close()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/bot"+c.token+"/sendVoice", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	res, err := c.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	var env struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&env); err != nil {
+		return err
+	}
+	if !env.OK {
+		return fmt.Errorf("telegram sendVoice: %s", env.Description)
+	}
+	return nil
+}
+
 func (c *Client) typing(ctx context.Context, chatID string) {
 	_ = c.call(ctx, "sendChatAction", map[string]any{"chat_id": chatID, "action": "typing"}, nil)
 }
@@ -114,6 +144,13 @@ func (n *Channel) Send(ctx context.Context, text string) error {
 		return fmt.Errorf("sin TELEGRAM_OWNER_CHAT_ID")
 	}
 	return n.c.SendMessage(ctx, n.owner, text, nil)
+}
+
+func (n *Channel) SendVoice(ctx context.Context, audio []byte, caption string) error {
+	if !n.Ready() {
+		return fmt.Errorf("sin TELEGRAM_OWNER_CHAT_ID")
+	}
+	return n.c.SendVoice(ctx, n.owner, audio, caption)
 }
 
 var riskLabel = map[string]string{"bajo": "riesgo bajo", "medio": "riesgo medio", "alto": "RIESGO ALTO"}

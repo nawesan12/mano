@@ -39,6 +39,7 @@ apps/worker/            Go
   internal/whatsapp     Cloud API: webhook firmado, botones, plantillas, ventana de 24 h, costos, llamadas
   internal/voice        Mano te llama: puente WebRTC, sesión de voz, herramientas, reintentos
   internal/stt          transcripción de audios (API compatible con OpenAI)
+  internal/tts          notas de voz para lo importante (API compatible con OpenAI)
   internal/server       webhook de Gmail y /health
   internal/schedule     tareas diarias por hora local
 apps/web                panel Next.js (estado, pendientes, registro, gasto)
@@ -76,6 +77,16 @@ Puesta en marcha:
    `Aviso de Mano: {{1}}. Respondé este mensaje para ver el detalle.`
    La variable no puede ir ni al principio ni al final del cuerpo. Mantenela seca y transaccional: si suena promocional, Meta la recategoriza como marketing y cuesta más.
 4. Correr `supabase/migrations/0002_whatsapp.sql`.
+
+## Cómo te avisa
+
+| Urgencia | Ejemplo | Cómo te llega |
+| --- | --- | --- |
+| Crítica | Cambio de CBU, intimación, cliente grande enojado | **Llamada** (ver "Mano te llama") más el aviso por escrito |
+| Alta | Lead con intención real, reunión movida | **Nota de voz** con el texto abajo, más la tarjeta para aprobar |
+| Normal | Info que puede esperar | En el resumen de la mañana |
+
+La nota de voz reemplaza al aviso escrito, no se suma: en WhatsApp sigue siendo un solo mensaje. Necesita `TTS_BASE_URL`; sin eso, el aviso va por texto. Pasa por el gobernador como cualquier IA, y si se frena por gasto también va por texto. Fuera de la ventana de 24 h de WhatsApp sale la plantilla de aviso. Correr `supabase/migrations/0005_notas_de_voz.sql`.
 
 ## Seguimiento
 
