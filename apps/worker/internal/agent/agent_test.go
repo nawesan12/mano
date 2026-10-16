@@ -922,7 +922,7 @@ func (f *fakeArchiver) Unarchive(_ context.Context, id string) error {
 // Lo ignorado se archiva solo, el resumen lo cuenta y /desarchivar lo devuelve.
 func TestInboxCleanup(t *testing.T) {
 	ctx := context.Background()
-	a, _, _, _, _, _ := setup(t)
+	a, db, _, _, _, _ := setup(t)
 	ar := &fakeArchiver{}
 	a.SetArchiver(ar)
 	_ = a.OnEvent(ctx, mail("n1", "newsletter@tienda.com", "Ofertas"))
@@ -940,5 +940,11 @@ func TestInboxCleanup(t *testing.T) {
 	}
 	if got := a.Unarchive(ctx, ""); !strings.Contains(got, "1 mail") {
 		t.Fatal("ya restaurado no se cuenta de nuevo:", got)
+	}
+	// con la misión de inbox en "Prepara" (nivel 1) no archiva: archivar es "Ejecuta y avisa"
+	db.Set("missions", []map[string]any{{"tenant_id": tenant, "area": "inbox", "goal": "Limpiame el mail", "autonomy": 1, "active": true}})
+	_ = a.OnEvent(ctx, mail("n4", "newsletter@tienda.com", "Liquidación"))
+	if len(ar.archived) != 2 {
+		t.Fatal("en nivel 1 no archiva")
 	}
 }

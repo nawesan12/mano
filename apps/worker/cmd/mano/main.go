@@ -254,6 +254,14 @@ func main() {
 		}
 		srvCfg.Hooks["/webhooks/calendar"] = cal
 	}
+	if cfg.PanelToken != "" {
+		srvCfg.Hooks["GET /api/status"] = &server.StatusAPI{Token: cfg.PanelToken, Status: map[string]bool{
+			"telegram": cfg.TelegramEnabled(), "whatsapp": cfg.WhatsAppEnabled(), "llamadas": caller != nil, "notas_de_voz": models.TTS != nil,
+			"gmail": gm != nil, "inbox_limpio": gm != nil && cfg.GmailArchiveIgnored, "calendar": cfg.CalendarEnabled,
+			"mercadopago": cfg.MPAccessToken != "", "transferencias": cfg.MPPayoutsEnabled, "mercadolibre": cfg.MLClientID != "",
+			"arca": cfg.ArcaCUIT != 0, "memoria": models.Embedder != nil, "respaldo_ia": cfg.FallbackProvider != "", "transcripcion": transcriber != nil,
+		}}
+	}
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: srvCfg.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		slog.Info("webhooks escuchando", "port", cfg.Port, "gmail", gm != nil, "whatsapp", waClient != nil, "mercadopago", cfg.MPAccessToken != "", "calendar", cfg.CalendarEnabled)

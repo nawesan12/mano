@@ -82,3 +82,28 @@ export async function addCustomerNote(form: FormData) {
   await sb.from('customers').update({ notes }).eq('tenant_id', tenantId()).eq('id', id);
   revalidatePath('/clientes');
 }
+
+export async function setMission(form: FormData) {
+  await requireSession();
+  const id = String(form.get('id') ?? '');
+  const patch: { autonomy?: number; active?: boolean } = {};
+  const lvl = form.get('autonomy');
+  if (lvl !== null) {
+    const n = Number(lvl);
+    if (!Number.isInteger(n) || n < 0 || n > 3) return;
+    patch.autonomy = n;
+  }
+  if (form.get('active') !== null) patch.active = form.get('active') === 'true';
+  if (!id || Object.keys(patch).length === 0) return;
+  await db().from('missions').update(patch).eq('tenant_id', tenantId()).eq('id', id);
+  revalidatePath('/misiones');
+}
+
+export async function addMission(form: FormData) {
+  await requireSession();
+  const area = String(form.get('area') ?? '').trim().slice(0, 30);
+  const goal = String(form.get('goal') ?? '').trim().slice(0, 160);
+  if (!area || !goal) return;
+  await db().from('missions').insert({ tenant_id: tenantId(), area, goal, autonomy: 1 });
+  revalidatePath('/misiones');
+}
