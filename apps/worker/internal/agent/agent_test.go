@@ -323,3 +323,50 @@ func TestBriefIncludesAgenda(t *testing.T) {
 		t.Fatalf("%q %v", b, err)
 	}
 }
+
+type fakeCustomerCaller struct {
+	fakeCaller
+	calls []CustomerCall
+}
+
+func (f *fakeCustomerCaller) CallCustomer(_ context.Context, r CustomerCall) (string, error) {
+	f.calls = append(f.calls, r)
+	return "", nil
+}
+
+// /llamar arma la llamada como aprobación; recién al aprobar se llama al cliente.
+func TestCustomerCallNeedsApproval(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, _, _ := setup(t)
+	fc := &fakeCustomerCaller{}
+	a.SetCaller(fc)
+	a.spawn = func(f func()) { f() }
+	db.Set("wa_contacts", []map[string]any{
+		{"tenant_id": tenant, "phone": "5491111111111", "name": "Juan Pérez", "is_owner": false},
+		{"tenant_id": tenant, "phone": "5492222222222", "name": "Ana Pérez", "is_owner": false},
+		{"tenant_id": tenant, "phone": "5493333333333", "name": "Gómez", "is_owner": false},
+		{"tenant_id": tenant, "phone": "5492230000000", "name": "Yo", "is_owner": true},
+	})
+	if msg, ap := a.ProposeCustomerCall(ctx, "perez", "recordarle la factura"); ap != nil || !strings.Contains(msg, "Hay varios") {
+		t.Fatalf("ambiguo: %q", msg)
+	}
+	if msg, ap := a.ProposeCustomerCall(ctx, "Fulano", "x"); ap != nil || !strings.Contains(msg, "No encontré") {
+		t.Fatalf("no existe: %q", msg)
+	}
+	msg, ap := a.ProposeCustomerCall(ctx, "gomez", "Recordarle que la factura 123 vence hoy")
+	if ap == nil || ap.Action.To != "5493333333333" || ap.Action.Type != "call.customer" {
+		t.Fatalf("propuesta: %q %+v", msg, ap)
+	}
+	if len(fc.calls) != 0 {
+		t.Fatal("no llama antes de aprobar")
+	}
+	if got := a.OnDecision(ctx, ap.ID, Approve, "test"); !strings.Contains(got, "Llamo a Gómez") {
+		t.Fatal(got)
+	}
+	if len(fc.calls) != 1 || fc.calls[0].Goal != "Recordarle que la factura 123 vence hoy" || fc.calls[0].ApprovedBy != "test" {
+		t.Fatalf("llamada: %+v", fc.calls)
+	}
+	if got := a.OnDecision(ctx, ap.ID, Approve, "test"); !strings.Contains(got, "ya estaba resuelta") || len(fc.calls) != 1 {
+		t.Fatal("doble toque no vuelve a llamar")
+	}
+}

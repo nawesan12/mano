@@ -22,6 +22,7 @@ const owner = "5492230000000"
 type fakePhone struct {
 	c          *Caller
 	mode       string // accept | reject | noanswer | noperm
+	target     string // a quién se espera que llame (vacío = al dueño)
 	mu         sync.Mutex
 	started    int
 	terminated []string
@@ -37,7 +38,11 @@ func (p *fakePhone) StartCall(_ context.Context, to, offer, _ string) (string, e
 	if mode == "noperm" {
 		return "", whatsapp.ErrNoCallPermission
 	}
-	if to != owner || offer == "" {
+	want := owner
+	if p.target != "" {
+		want = p.target
+	}
+	if to != want || offer == "" {
 		panic("llamada mal armada")
 	}
 	go func() {
@@ -319,5 +324,70 @@ func TestCallRespectsPolicyGovernorAndPermission(t *testing.T) {
 	}
 	if _, _ = r.c.CallOwner(context.Background(), req); r.phone.asked != 1 {
 		t.Fatal("no pide permiso dos veces en 24 h")
+	}
+}
+
+const customer = "5491111111111"
+
+// La llamada al cliente solo anota y corta: no puede aprobar nada aunque el modelo lo intente.
+func TestCustomerCallOnlyTakesNotes(t *testing.T) {
+	r := setup(t, "accept")
+	r.criticalMail(t) // hay un pendiente: el cliente no lo puede aprobar
+	r.db.Set("tenants", []map[string]any{{"id": testutil.Tenant, "name": "Inmobiliaria Costa Azul"}})
+	r.media.script = func(n int, m map[string]any) []string {
+		if m["type"] != "response.create" {
+			return nil
+		}
+		if n == 1 {
+			return []string{
+				`{"type":"conversation.item.input_audio_transcription.completed","transcript":"Sí, pago el viernes"}`,
+				fnCall("aprobar", `{"numero":1}`),
+				fnCall("anotar", `{"nota":"Dice que paga el viernes"}`),
+			}
+		}
+		return []string{fnCall("cortar", `{}`)}
+	}
+	r.phone.target = customer
+	why, err := r.c.CallCustomer(context.Background(), agent.CustomerCall{Phone: customer, Name: "Juan", Goal: "Recordarle la factura 123", ApprovedBy: "test"})
+	if err != nil || why != "" {
+		t.Fatalf("%q %v", why, err)
+	}
+	if len(r.mail.replies) != 0 || r.db.Rows("approvals")[0]["status"] != "pending" {
+		t.Fatal("en una llamada a un cliente no se aprueba nada")
+	}
+	instr, _ := r.brain.session["instructions"].(string)
+	if !strings.Contains(instr, "asistente virtual de Inmobiliaria Costa Azul") || !strings.Contains(instr, "Recordarle la factura 123") {
+		t.Fatalf("instrucciones: %s", instr)
+	}
+	tools, _ := r.brain.session["tools"].([]map[string]any)
+	if len(tools) != 2 {
+		t.Fatalf("solo anotar y cortar: %v", tools)
+	}
+	if !strings.Contains(r.notify.all(), "Llamé a Juan.") || !strings.Contains(r.notify.all(), "Dice que paga el viernes") {
+		t.Fatalf("informe al dueño: %s", r.notify.all())
+	}
+	var party string
+	for _, c := range r.db.Rows("calls") {
+		party, _ = c["party"].(string)
+	}
+	if party != "customer" {
+		t.Fatal("la llamada a cliente no cuenta para el tope del dueño")
+	}
+}
+
+func TestCustomerCallRespectsQuietAndPermission(t *testing.T) {
+	r := setup(t, "noperm")
+	req := agent.CustomerCall{Phone: customer, Name: "Juan", Goal: "x"}
+	r.c.Now = func() time.Time { return time.Date(2026, 10, 15, 22, 0, 0, 0, time.UTC) }
+	if why, _ := r.c.CallCustomer(context.Background(), req); !strings.Contains(why, "silencio") {
+		t.Fatalf("de noche no llama a clientes: %q", why)
+	}
+	r.c.Now = nil
+	r.db.Set("call_policy", []map[string]any{{"tenant_id": testutil.Tenant, "enabled": true, "quiet_from": "00:00", "quiet_to": "00:00", "max_per_day": 3, "retry_after_min": 10, "max_attempts": 2}})
+	if why, _ := r.c.CallCustomer(context.Background(), req); !strings.Contains(why, "permiso") || r.phone.asked != 1 {
+		t.Fatalf("sin permiso le pide permiso al cliente: %q", why)
+	}
+	if why, _ := r.c.CallCustomer(context.Background(), agent.CustomerCall{Phone: owner}); why == "" {
+		t.Fatal("al dueño no se lo llama como cliente")
 	}
 }

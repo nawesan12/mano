@@ -149,6 +149,8 @@ Puesta en marcha:
 5. VPS: WebRTC usa UDP. Abrí el rango UDP efímero en el firewall y, con Docker, corré con `--network host`.
 6. Probá: `/llamame`, atendé y decí "¿qué tengo pendiente?".
 
+**Llamar a un cliente:** `/llamar Pérez: recordarle que vence la factura 123`. Mano busca a Pérez entre tus contactos de WhatsApp y te muestra la llamada como tarjeta. **Sale solo si la aprobás.** Al cliente le dice que es el asistente virtual del negocio, cumple el objetivo y nada más: no promete, no negocia, no aprueba. Anota lo que le dicen ("paga el viernes") y te lo cuenta al cortar. Sin reintentos y nunca en horario de silencio. Si el cliente no dio permiso de llamada, le manda el pedido (fuera de la ventana de 24 h necesita la plantilla `WA_TEMPLATE_CALL_PERMISSION`). Correr `0008_llamadas_clientes.sql`.
+
 Ajustes por chat: `/silencio 22-7`, `/llamadas 5`, `/llamadas off`, `/regla llamame si escribe Liliana o si entra un pago de más de 500.000`.
 
 ## En el VPS
@@ -172,6 +174,7 @@ docker run -d --restart=always --env-file .env --network host mano-worker   # ho
 | `/olvidar Tema` | Borra lo que sabía de ese tema |
 | `/regla …` | Le explicás en tus palabras cuándo avisarte o llamarte; te la muestra para aprobar |
 | `/llamame` | Te llama ahora con lo pendiente |
+| `/llamar Quién: para qué` | Propone llamar a un cliente; sale solo si la aprobás |
 | `/silencio 21-8` | Horario en que no te llama (sin argumento, muestra la configuración) |
 | `/llamadas 3` | Máximo de llamadas por día; `off` / `on` para apagarlas o prenderlas |
 

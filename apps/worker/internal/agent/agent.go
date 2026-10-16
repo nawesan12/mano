@@ -49,6 +49,16 @@ type Caller interface {
 	CallOwner(ctx context.Context, r CallRequest) (string, error)
 }
 
+// CustomerCall es una llamada a un cliente que el dueño ya aprobó.
+type CustomerCall struct {
+	Phone, Name, Goal, ApprovedBy, TaskID string
+}
+
+// CustomerCaller llama a clientes (voice.Caller). Solo se usa desde OnDecision: nunca sin aprobación.
+type CustomerCaller interface {
+	CallCustomer(ctx context.Context, r CustomerCall) (string, error)
+}
+
 type Agent struct {
 	store  *store.Store
 	models *Models
@@ -352,6 +362,8 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		return "Enviado por WhatsApp a +" + ap.Action.To + "."
 	case "rule.add":
 		return a.applyRule(ctx, *ap, by)
+	case "call.customer":
+		return a.startCustomerCall(ctx, *ap, by)
 	default:
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", nil)
 		return "Hecho."
