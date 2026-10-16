@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,9 +22,6 @@ type Payments interface {
 
 // LinkTTL: un link de pago vence a la semana.
 const LinkTTL = 7 * 24 * time.Hour
-
-// ChargeRemindAfter: si no pagó en 3 días, se le avisa al dueño (una vez).
-const ChargeRemindAfter = 72 * time.Hour
 
 // SetPayments activa los cobros por Mercado Pago. notifyURL puede ir vacío si el webhook está en el panel.
 func (a *Agent) SetPayments(p Payments, notifyURL string) { a.pay, a.payNotify = p, notifyURL }
@@ -183,7 +181,22 @@ func (a *Agent) Movements(ctx context.Context) string {
 	return b.String()
 }
 
-// chargeFollowUp: links sin pagar a los 3 días (una vez) y vencidos. Sin IA. Devuelve líneas para el mensaje.
+// Cobranza escalonada: a los 3 días se propone recordarle al cliente por WhatsApp; a los 6, llamarlo.
+// Cada paso es una aprobación: Fase 0 no le escribe ni le habla solo a un cliente.
+const (
+	ChargeNudgeAfter = 72 * time.Hour
+	ChargeCallAfter  = 6 * 24 * time.Hour
+)
+
+func nudgeText(c store.Charge) string {
+	hi := "Hola"
+	if f := strings.Fields(c.Name); len(f) > 0 && !strings.HasPrefix(f[0], "+") {
+		hi += " " + f[0]
+	}
+	return fmt.Sprintf("%s, ¿cómo estás? Te dejo de nuevo el link por %s (%s), por si se te pasó: %s", hi, mercadopago.Money(c.Amount), c.Description, c.URL)
+}
+
+// chargeFollowUp avanza la cobranza de cada link sin pagar. Sin IA. Devuelve líneas para el mensaje al dueño.
 func (a *Agent) chargeFollowUp(ctx context.Context, now time.Time) []string {
 	pend, err := a.store.PendingCharges(ctx)
 	if err != nil {
@@ -191,15 +204,44 @@ func (a *Agent) chargeFollowUp(ctx context.Context, now time.Time) []string {
 	}
 	var lines []string
 	for _, c := range pend {
+		age := now.Sub(c.CreatedAt)
 		switch {
 		case c.ExpiresAt != nil && now.After(*c.ExpiresAt):
 			_ = a.store.SetChargeStatus(ctx, c.ID, "expired")
-			lines = append(lines, fmt.Sprintf("Venció sin pagar el link de %s a %s (%s).", mercadopago.Money(c.Amount), c.Name, c.Description))
-		case c.RemindedAt == nil && !c.CreatedAt.IsZero() && now.Sub(c.CreatedAt) >= ChargeRemindAfter:
-			_ = a.store.MarkChargeReminded(ctx, c.ID, now)
-			lines = append(lines, fmt.Sprintf("%s todavía no pagó el link de %s (%s), hace %s. Si querés: /llamar %s: recordarle el pago",
-				c.Name, mercadopago.Money(c.Amount), c.Description, ago(now.Sub(c.CreatedAt)), c.Name))
+			lines = append(lines, fmt.Sprintf("Venció sin pagar el link de %s a %s (%s). Si querés, mandá uno nuevo: /cobrar %s %s %s",
+				mercadopago.Money(c.Amount), c.Name, c.Description, c.Name, strconv.FormatFloat(c.Amount, 'f', -1, 64), c.Description))
+		case c.CreatedAt.IsZero():
+		case c.Stage < 1 && age >= ChargeNudgeAfter:
+			_ = a.store.SetChargeStage(ctx, c.ID, 1, now)
+			if c.Phone == "" {
+				lines = append(lines, fmt.Sprintf("%s todavía no pagó el link de %s (%s), hace %s.", c.Name, mercadopago.Money(c.Amount), c.Description, ago(age)))
+				continue
+			}
+			ap := store.Approval{Area: "Cobros", Risk: "bajo", Title: core.Truncate("Recordarle el pago a "+c.Name, 90),
+				Detail: fmt.Sprintf("Hace %s que le mandaste el link de %s y no pagó. Le mando:\n%s", ago(age), mercadopago.Money(c.Amount), nudgeText(c)),
+				Action: store.Action{Type: "charge.nudge", To: c.Phone, Subject: c.Name, Ref: c.ID, Text: nudgeText(c)}}
+			if id, err := a.store.CreateApproval(ctx, ap); err == nil {
+				ap.ID = id
+				_ = a.notify.ApprovalCard(ctx, ap)
+			}
+		case c.Stage < 2 && age >= ChargeCallAfter && c.Phone != "" && a.caller != nil:
+			_ = a.store.SetChargeStage(ctx, c.ID, 2, now)
+			goal := fmt.Sprintf("Recordarle con amabilidad que tiene pendiente el pago de %s por %s y que el link se lo mandamos por WhatsApp. Preguntarle si tuvo algún problema para pagar.", mercadopago.Money(c.Amount), c.Description)
+			if _, ap := a.ProposeCustomerCall(ctx, "+"+c.Phone, goal); ap != nil {
+				_ = a.notify.ApprovalCard(ctx, *ap)
+			}
 		}
 	}
 	return lines
+}
+
+func (a *Agent) nudgeCharge(ctx context.Context, ap store.Approval, by string) string {
+	if a.wa == nil {
+		return "WhatsApp no está conectado. El texto para mandarle vos:\n" + ap.Action.Text
+	}
+	if err := a.wa.ReplyInWindow(ctx, ap.Action.To, ap.Action.Text); err != nil {
+		return "No le pude escribir a " + ap.Action.Subject + " (" + err.Error() + "). Mandáselo vos:\n" + ap.Action.Text
+	}
+	_ = a.store.Log(ctx, store.LogEntry{Area: "Cobros", Tool: "charge.nudge", Summary: "Le recordó el pago a " + ap.Action.Subject, Via: "code", ApprovedBy: by})
+	return "Listo, le recordé el pago a " + ap.Action.Subject + ". Si en unos días no paga, te propongo llamarlo."
 }

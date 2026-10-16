@@ -408,7 +408,7 @@ func (w *fakeWA) ReplyInWindow(_ context.Context, to, body string) error {
 // /cobrar arma el link recién al aprobar y se lo manda al cliente; a los 3 días sin pagar, avisa una vez.
 func TestChargeLinkFlow(t *testing.T) {
 	ctx := context.Background()
-	a, db, _, _, _, _ := setup(t)
+	a, db, _, _, n, _ := setup(t)
 	pay, wa := &fakePay{}, &fakeWA{}
 	a.SetPayments(pay, "")
 	a.wa = wa
@@ -431,12 +431,35 @@ func TestChargeLinkFlow(t *testing.T) {
 	charges[0]["created_at"] = time.Now().Add(-80 * time.Hour).Format(time.RFC3339)
 	db.Set("mp_charges", charges)
 	db.Set("call_policy", []map[string]any{{"tenant_id": tenant, "enabled": true, "quiet_from": "00:00", "quiet_to": "00:00", "max_per_day": 3, "retry_after_min": 10, "max_attempts": 2}})
-	msg, _ := a.FollowUp(ctx, time.Now())
-	if !strings.Contains(msg, "Juan Pérez todavía no pagó el link de $150.000 (factura 123), hace 3 días") {
-		t.Fatalf("seguimiento: %q", msg)
+	fc := &fakeCaller{}
+	a.SetCaller(fc)
+	// día 3: tarjeta para recordarle por WhatsApp, con el mismo link
+	_, _ = a.FollowUp(ctx, time.Now())
+	if len(n.cards) != 1 {
+		t.Fatal("a los 3 días propone recordarle el pago")
 	}
-	if again, _ := a.FollowUp(ctx, time.Now()); strings.Contains(again, "todavía no pagó") {
-		t.Fatal("avisa una sola vez")
+	_, _ = a.FollowUp(ctx, time.Now())
+	if len(n.cards) != 1 {
+		t.Fatal("una sola vez por paso")
+	}
+	if got := a.OnDecision(ctx, n.cards[0], Approve, "test"); !strings.Contains(got, "le recordé el pago a Juan Pérez") || !strings.Contains(wa.sent[1], "por si se te pasó: https://mpago.la/abc") {
+		t.Fatal(got, wa.sent)
+	}
+	// día 6: propone llamarlo
+	charges = db.Rows("mp_charges")
+	charges[0]["created_at"] = time.Now().Add(-6*24*time.Hour - time.Hour).Format(time.RFC3339)
+	charges[0]["expires_at"] = time.Now().Add(time.Hour).Format(time.RFC3339)
+	db.Set("mp_charges", charges)
+	_, _ = a.FollowUp(ctx, time.Now())
+	if len(n.cards) != 2 {
+		t.Fatal("a los 6 días propone llamarlo")
+	}
+	var call bool
+	for _, r := range db.Rows("approvals") {
+		call = call || r["action"].(map[string]any)["type"] == "call.customer"
+	}
+	if !call {
+		t.Fatal("la segunda tarjeta es una llamada al cliente")
 	}
 	if m := a.Movements(ctx); !strings.Contains(m, "3 pago(s), $450.000 cobrado, $430.000 neto ($100.000 todavía por liberar)") || !strings.Contains(m, "Links sin pagar: 1 ($150.000)") {
 		t.Fatalf("movimientos: %q", m)
