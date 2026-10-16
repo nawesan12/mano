@@ -2,6 +2,7 @@
 
 Producto: agente de IA para dueños de PyME (WhatsApp/Telegram/voz). Fase 0 = MVP personal, mono-tenant.
 Worker en **Go** (`apps/worker`), panel en **Next.js 15** (`apps/web`), datos en **Supabase**.
+Contexto de producto y diseños en `docs/` (empezá por `docs/producto.md`); el sistema visual está en `docs/README.md`.
 
 ## Reglas del proyecto
 
