@@ -57,7 +57,7 @@ supabase                migración con RLS + seed
 3. `cp .env.example .env` y completá. **Importante:** `TOP_PRICE_IN` y `TOP_PRICE_OUT` con la tarifa vigente del proveedor; sin eso el worker no arranca.
 4. `cd apps/worker && make run`. Mandale `/start` al bot, copiá tu chat id a `TELEGRAM_OWNER_CHAT_ID` y reiniciá.
 5. Gmail (opcional para arrancar):
-   - En Google Cloud: habilitá Gmail API y Pub/Sub, creá un OAuth client y sacá el refresh token del dueño (scopes `gmail.readonly` y `gmail.send`; sumá `calendar.readonly` si vas a usar Calendar).
+   - En Google Cloud: habilitá Gmail API y Pub/Sub, creá un OAuth client y sacá el refresh token del dueño (scopes `gmail.readonly` y `gmail.send`; sumá `gmail.modify` para el inbox limpio y `calendar.readonly` para Calendar).
    - Creá un topic, dale permiso de publicación a `gmail-api-push@system.gserviceaccount.com` y una suscripción push a `https://TU-WORKER/webhooks/gmail?token=GMAIL_PUSH_TOKEN`.
    - El worker registra y renueva el watch solo; para probarlo a mano: `make watch`.
 6. WhatsApp (opcional): ver la sección de abajo.
@@ -287,6 +287,16 @@ docker build -t mano-worker apps/worker
 docker run -d --restart=always --env-file .env --network host mano-worker   # host: las llamadas usan UDP
 ```
 
+## Inbox limpio
+
+Con `GMAIL_ARCHIVE_IGNORED=true`, lo que Mano ignora (newsletters, `noreply`, avisos automáticos y remitentes que silenciaste) sale del inbox con la etiqueta **Mano/Archivado**.
+
+- **No borra nada:** es reversible, el nivel 2 de autonomía ("hace lo reversible y avisa").
+- **Te avisa:** el resumen de la mañana dice cuántos archivó.
+- **Deshacer:** `/desarchivar` devuelve lo de la última semana, y `/desarchivar tienda.com` solo lo de ese remitente.
+
+Requiere el scope `gmail.modify` en el refresh token. Correr `0020_inbox_limpio.sql`.
+
 ## Memoria con búsqueda
 
 "¿Qué me dijo Pérez del contrato?", "¿cuándo vence lo de Gómez?" o `/buscar …`: Mano busca en lo que te llegó y te contesta citando de quién y de qué fecha.
@@ -358,6 +368,7 @@ Mano lo traduce al comando equivalente y lo corre con las mismas validaciones. L
 | `/devolver pago [monto]` | Devolución; solo con el botón, nunca por voz |
 | `/envios` | Envíos de Mercado Libre en curso |
 | `/facturar monto cliente: concepto` | Factura C en ARCA; solo con el botón |
+| `/desarchivar [remitente]` | Devuelve al inbox lo que Mano archivó |
 | `/buscar pregunta` | Busca en lo que te llegó y responde citando quién y cuándo |
 | `/anular número [monto]` | Nota de crédito C que anula una factura |
 | `/cliente Quién` · `/nota Quién: dato` | Ficha del cliente y notas que Mano usa al responder |

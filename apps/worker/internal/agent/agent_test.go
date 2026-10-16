@@ -907,3 +907,38 @@ func TestKeywords(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+type fakeArchiver struct{ archived, restored []string }
+
+func (f *fakeArchiver) Archive(_ context.Context, id string) error {
+	f.archived = append(f.archived, id)
+	return nil
+}
+func (f *fakeArchiver) Unarchive(_ context.Context, id string) error {
+	f.restored = append(f.restored, id)
+	return nil
+}
+
+// Lo ignorado se archiva solo, el resumen lo cuenta y /desarchivar lo devuelve.
+func TestInboxCleanup(t *testing.T) {
+	ctx := context.Background()
+	a, _, _, _, _, _ := setup(t)
+	ar := &fakeArchiver{}
+	a.SetArchiver(ar)
+	_ = a.OnEvent(ctx, mail("n1", "newsletter@tienda.com", "Ofertas"))
+	_ = a.OnEvent(ctx, mail("n2", "newsletter@otra.com", "Más ofertas"))
+	_ = a.OnEvent(ctx, mail("n3", "Ramírez <ramirez@mail.com>", "¿Me pasás presupuesto?"))
+	if strings.Join(ar.archived, ",") != "n1,n2" {
+		t.Fatalf("solo lo ignorado: %v", ar.archived)
+	}
+	b, _ := a.Brief(ctx)
+	if !strings.Contains(b, "Archivé 2 mails") {
+		t.Fatal(b)
+	}
+	if got := a.Unarchive(ctx, "otra.com"); !strings.Contains(got, "volvieron al inbox 1 mail") || strings.Join(ar.restored, ",") != "n2" {
+		t.Fatal(got, ar.restored)
+	}
+	if got := a.Unarchive(ctx, ""); !strings.Contains(got, "1 mail") {
+		t.Fatal("ya restaurado no se cuenta de nuevo:", got)
+	}
+}

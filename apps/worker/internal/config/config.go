@@ -53,6 +53,7 @@ type Config struct {
 
 	GoogleClientID, GoogleClientSecret, GoogleRefreshToken string
 	GmailTopic, GmailPushToken                             string
+	GmailArchiveIgnored                                    bool // requiere el scope gmail.modify
 
 	MPAccessToken, MPWebhookSecret string
 
@@ -280,6 +281,7 @@ func Load() (Config, error) {
 		c.TTSPricePerMChars = num("TTS_PRICE_PER_M_CHARS", 0, "USD por millón de caracteres (tarifa vigente)")
 	}
 
+	c.GmailArchiveIgnored = truthy(os.Getenv("GMAIL_ARCHIVE_IGNORED"))
 	c.PublicURL = strings.TrimRight(str("PUBLIC_URL", false), "/")
 	c.CalendarEnabled = truthy(os.Getenv("CALENDAR_ENABLED"))
 	if c.CalendarEnabled {

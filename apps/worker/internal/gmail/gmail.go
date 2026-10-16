@@ -32,6 +32,7 @@ type Client struct {
 
 	mu          sync.Mutex
 	lastHistory uint64
+	labelID     string // etiqueta Mano/Archivado
 
 	base string // configurable para tests
 }
@@ -311,4 +312,66 @@ func EmailOf(s string) string {
 		return m[1]
 	}
 	return strings.TrimSpace(s)
+}
+
+// ArchiveLabel es la etiqueta que deja Mano en lo que archiva: se encuentra y se recupera fácil.
+const ArchiveLabel = "Mano/Archivado"
+
+// archiveLabelID busca (o crea, una vez) la etiqueta de archivado.
+func (c *Client) archiveLabelID(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	id := c.labelID
+	c.mu.Unlock()
+	if id != "" {
+		return id, nil
+	}
+	var list struct {
+		Labels []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"labels"`
+	}
+	if err := c.api(ctx, http.MethodGet, "labels", nil, nil, &list); err != nil {
+		return "", err
+	}
+	for _, l := range list.Labels {
+		if l.Name == ArchiveLabel {
+			id = l.ID
+		}
+	}
+	if id == "" {
+		var created struct {
+			ID string `json:"id"`
+		}
+		if err := c.api(ctx, http.MethodPost, "labels", nil, map[string]string{"name": ArchiveLabel, "labelListVisibility": "labelShow", "messageListVisibility": "show"}, &created); err != nil {
+			return "", err
+		}
+		id = created.ID
+	}
+	c.mu.Lock()
+	c.labelID = id
+	c.mu.Unlock()
+	return id, nil
+}
+
+func (c *Client) modify(ctx context.Context, id string, add, remove []string) error {
+	return c.api(ctx, http.MethodPost, "messages/"+url.PathEscape(id)+"/modify", nil, map[string][]string{"addLabelIds": add, "removeLabelIds": remove}, nil)
+}
+
+// Archive saca el mail del inbox y le pone la etiqueta de Mano. No borra nada.
+func (c *Client) Archive(ctx context.Context, id string) error {
+	label, err := c.archiveLabelID(ctx)
+	if err != nil {
+		return err
+	}
+	return c.modify(ctx, id, []string{label}, []string{"INBOX"})
+}
+
+// Unarchive lo devuelve al inbox.
+func (c *Client) Unarchive(ctx context.Context, id string) error {
+	label, err := c.archiveLabelID(ctx)
+	if err != nil {
+		return err
+	}
+	return c.modify(ctx, id, []string{"INBOX"}, []string{label})
 }

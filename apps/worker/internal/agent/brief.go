@@ -26,6 +26,9 @@ func (a *Agent) Brief(ctx context.Context) (string, error) {
 		}
 		pend = fmt.Sprintf("Te esperan %d aprobaciones: %s.", len(pending), strings.Join(titles, "; "))
 	}
+	if ar := a.archivedLine(ctx); ar != "" {
+		pend = pend + "\n" + ar
+	}
 	if ag := a.agenda(ctx); ag != "" {
 		pend = ag + "\n" + pend
 	}

@@ -68,6 +68,7 @@ type Agent struct {
 	caller         Caller
 	pay            Payments
 	payNotify      string
+	archiver       Archiver
 	invoicer       Invoicer
 	invoiceCfg     InvoiceConfig
 	transfers      Transfers
@@ -135,6 +136,7 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		return err
 	}
 	a.learnCustomer(ctx, ev, t)
+	a.archiveIgnored(ctx, ev, t)
 	if a.models.Embedder != nil {
 		base := context.WithoutCancel(ctx)
 		a.spawn(func() { a.remember(base, ev, eventID, t) })
