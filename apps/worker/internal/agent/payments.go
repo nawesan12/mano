@@ -30,7 +30,8 @@ func (a *Agent) SetPayments(p Payments, notifyURL string) { a.pay, a.payNotify =
 
 // moneyActions mueven plata: se aprueban solo con el botón, nunca por voz.
 // Confiar en una cuenta nueva también: es la puerta de una estafa.
-var moneyActions = map[string]bool{"mp.refund": true, "mp.payout": true, "account.trust": true}
+// Facturar también: queda informado en ARCA y solo se anula con nota de crédito.
+var moneyActions = map[string]bool{"mp.refund": true, "mp.payout": true, "account.trust": true, "arca.invoice": true}
 
 func chargeMessage(name, desc string, amount float64, url string) string {
 	hi := "Hola"

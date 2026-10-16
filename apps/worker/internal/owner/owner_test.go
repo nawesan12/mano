@@ -111,3 +111,13 @@ func TestNaturalLanguageRoutes(t *testing.T) {
 		t.Fatal("se guardó")
 	}
 }
+
+func TestParseInvoice(t *testing.T) {
+	amount, who, dni, concept, ok := ParseInvoice("150.000 Juan Pérez dni 12.345.678: diseño de logo")
+	if !ok || amount != 150000 || who != "Juan Pérez" || dni != "12345678" || concept != "diseño de logo" {
+		t.Fatal(amount, who, dni, concept, ok)
+	}
+	if _, _, _, _, ok := ParseInvoice("Juan 1000"); ok {
+		t.Fatal("el monto va primero")
+	}
+}

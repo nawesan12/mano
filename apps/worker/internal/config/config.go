@@ -59,6 +59,13 @@ type Config struct {
 	CalendarEnabled              bool
 	PublicURL, CalendarPushToken string
 
+	// ARCA (facturación electrónica): certificado de la CUIT con el servicio wsfe asociado.
+	ArcaEnv, ArcaCertFile, ArcaKeyFile string
+	ArcaCUIT                           int64
+	ArcaPtoVta, ArcaConcepto           int
+	ArcaAuto                           bool
+	ArcaCFMax                          float64
+
 	PanelToken string // token compartido con el panel web para mandar decisiones
 
 	Port     string
@@ -280,6 +287,22 @@ func Load() (Config, error) {
 	}
 	if c.MLClientID != "" && (c.MLClientSecret == "" || c.MLRefreshToken == "") {
 		missing = append(missing, "Mercado Libre: con ML_CLIENT_ID también van ML_CLIENT_SECRET y ML_REFRESH_TOKEN (scope offline_access)")
+	}
+	if cuit := digits(os.Getenv("ARCA_CUIT")); cuit != "" {
+		c.ArcaCUIT, _ = strconv.ParseInt(cuit, 10, 64)
+		c.ArcaEnv = def("ARCA_ENV", "homologacion")
+		c.ArcaCertFile = str("ARCA_CERT_FILE", true)
+		c.ArcaKeyFile = str("ARCA_KEY_FILE", true)
+		c.ArcaPtoVta = int(num("ARCA_PTO_VTA", 0, "punto de venta de tipo Web Services"))
+		c.ArcaConcepto = int(num("ARCA_CONCEPTO", 2, "1 productos, 2 servicios, 3 ambos"))
+		c.ArcaAuto = os.Getenv("ARCA_AUTO") != "false"
+		c.ArcaCFMax = num("ARCA_CF_MAX", 10000000, "monto desde el que hay que identificar al consumidor final")
+		if len(cuit) != 11 {
+			missing = append(missing, "ARCA_CUIT: 11 dígitos")
+		}
+		if c.ArcaEnv != "homologacion" && c.ArcaEnv != "produccion" {
+			missing = append(missing, "ARCA_ENV: homologacion o produccion")
+		}
 	}
 	c.MPPayoutsEnabled = truthy(os.Getenv("MP_PAYOUTS_ENABLED"))
 	if c.MPPayoutsEnabled {

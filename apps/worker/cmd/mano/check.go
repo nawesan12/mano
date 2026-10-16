@@ -117,6 +117,19 @@ func runCheck(cfg config.Config) bool {
 		skip("Mercado Libre", "sin configurar")
 	}
 
+	if cfg.ArcaCUIT != 0 {
+		ac, err := newArca(cfg, st)
+		if err == nil {
+			var n int
+			n, err = ac.LastNumber(ctx, 11)
+			report("ARCA ("+cfg.ArcaEnv+")", err, fmt.Sprintf("último comprobante: %s", ac.Label(11, n)))
+		} else {
+			report("ARCA", err, "")
+		}
+	} else {
+		skip("ARCA", "sin configurar")
+	}
+
 	if ok {
 		fmt.Println("Todo en orden.")
 	}

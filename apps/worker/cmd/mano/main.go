@@ -21,6 +21,7 @@ import (
 	_ "time/tzdata" // zonas horarias embebidas: funciona igual en cualquier VPS o contenedor
 
 	"github.com/nawesan12/mano/worker/internal/agent"
+	"github.com/nawesan12/mano/worker/internal/arca"
 	"github.com/nawesan12/mano/worker/internal/calendar"
 	"github.com/nawesan12/mano/worker/internal/config"
 	"github.com/nawesan12/mano/worker/internal/core"
@@ -219,6 +220,15 @@ func main() {
 		}}
 	}
 
+	if cfg.ArcaCUIT != 0 {
+		ac, err := newArca(cfg, st)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ARCA:", err)
+			os.Exit(1)
+		}
+		ag.SetInvoicer(ac, agent.InvoiceConfig{CbteTipo: 11, Concepto: cfg.ArcaConcepto, CFMax: cfg.ArcaCFMax, AutoPropose: cfg.ArcaAuto})
+	}
+
 	var cal *calendar.Service
 	if cfg.CalendarEnabled {
 		cal = &calendar.Service{
@@ -331,4 +341,21 @@ func chanOrNil[T owner.Channel](c T) owner.Channel {
 		return nil
 	}
 	return c
+}
+
+// newArca carga el certificado de la CUIT y arma el cliente de ARCA (Factura C).
+func newArca(cfg config.Config, st *store.Store) (*arca.Client, error) {
+	certPEM, err := os.ReadFile(cfg.ArcaCertFile)
+	if err != nil {
+		return nil, err
+	}
+	keyPEM, err := os.ReadFile(cfg.ArcaKeyFile)
+	if err != nil {
+		return nil, err
+	}
+	cert, key, err := arca.LoadKeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, err
+	}
+	return arca.NewClient(cfg.ArcaEnv, cfg.ArcaCUIT, cfg.ArcaPtoVta, cert, key, st, cfg.Location)
 }
