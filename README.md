@@ -161,6 +161,18 @@ Puesta en marcha:
 
 El refresh token es de un solo uso: Mano guarda el nuevo en cada renovación. Si se pierde (por ejemplo, borrando `ml_auth`), hay que volver a autorizar la app.
 
+## Clientes
+
+Los clientes se arman solos, sin cargar nada a mano: cada mensaje de WhatsApp, cada mail que no es automático y cada pago suma contacto, último canal y total pagado. Se identifican por teléfono o mail; lo ignorado (newsletters) no cuenta.
+
+- **`/cliente Pérez`** ("¿qué sabés de Pérez?"): ficha con contactos, último contacto, total pagado, links sin pagar y notas.
+- **`/nota Pérez: paga a 60 días`** ("anotá que Pérez…"): suma una nota con fecha.
+- **Al redactar** una respuesta a ese cliente, Mano usa la ficha y las notas como contexto.
+- `/cobrar` y `/llamar` también encuentran a los clientes que dejaron su teléfono.
+- En el panel, **Clientes** permite buscar y agregar notas.
+
+Correr `0015_clientes.sql`.
+
 ## Diagnóstico semanal
 
 Los lunes a las 9, o cuando lo pidas con `/diagnostico` ("¿cuánto me ahorraste?"), Mano te manda cómo fue la semana:
@@ -291,6 +303,7 @@ Mano lo traduce al comando equivalente y lo corre con las mismas validaciones. L
 | `/cobros` | Lo cobrado en 24 h y 7 días, y los links sin pagar |
 | `/devolver pago [monto]` | Devolución; solo con el botón, nunca por voz |
 | `/envios` | Envíos de Mercado Libre en curso |
+| `/cliente Quién` · `/nota Quién: dato` | Ficha del cliente y notas que Mano usa al responder |
 | `/ausente hasta el lunes` · `/volvi` | Modo ausencia: solo lo crítico, respuesta a clientes aprobada |
 | `/transferir destino monto motivo` | Transferencia; topes duros, solo con el botón (apagada por defecto) |
 | `/silencio 21-8` | Horario en que no te llama (sin argumento, muestra la configuración) |

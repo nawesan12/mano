@@ -109,3 +109,9 @@ td.r, th.r { text-align: right; }
 .login label { font-weight: 500; }
 .login input { min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 .err { color: var(--bad); margin: 0; }
+
+.customer summary { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; cursor: pointer; list-style: none; }
+.customer summary::-webkit-details-marker { display: none; }
+.customer .meta { color: var(--muted); font-size: 13px; }
+.customer .contact { color: var(--muted); font: 13px var(--mono); margin: 10px 0 0; }
+.customer .addfact { margin: 12px 0 0; }

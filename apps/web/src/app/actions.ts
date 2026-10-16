@@ -69,3 +69,16 @@ export async function toggleRule(form: FormData) {
   await db().from('rules').update({ active: !active }).eq('tenant_id', tenantId()).eq('id', String(form.get('id') ?? ''));
   revalidatePath('/reglas');
 }
+
+export async function addCustomerNote(form: FormData) {
+  await requireSession();
+  const id = String(form.get('id') ?? '');
+  const note = String(form.get('note') ?? '').trim().slice(0, 300);
+  if (!id || !note) return;
+  const sb = db();
+  const { data } = await sb.from('customers').select('notes').eq('tenant_id', tenantId()).eq('id', id).maybeSingle();
+  const day = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
+  const notes = [data?.notes, `${day} ${note}`].filter(Boolean).join('\n').slice(-4000);
+  await sb.from('customers').update({ notes }).eq('tenant_id', tenantId()).eq('id', id);
+  revalidatePath('/clientes');
+}
