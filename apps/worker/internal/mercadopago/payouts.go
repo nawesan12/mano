@@ -137,7 +137,7 @@ func (p *Payouts) do(ctx context.Context, method, path, idemKey string, body, ou
 		return errors.New("Mercado Pago no habilitó las transferencias para esta cuenta (403): pedí la habilitación y registrá la clave pública")
 	}
 	if res.StatusCode >= 300 {
-		return fmt.Errorf("mercadopago payouts %d: %s", res.StatusCode, core.Truncate(string(b), 200))
+		return &core.HTTPError{Status: res.StatusCode, Msg: fmt.Sprintf("mercadopago payouts %d: %s", res.StatusCode, core.Truncate(string(b), 200))}
 	}
 	if out != nil && len(b) > 0 {
 		return json.Unmarshal(b, out)

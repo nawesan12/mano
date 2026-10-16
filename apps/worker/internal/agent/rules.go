@@ -54,13 +54,32 @@ func (a *Agent) ProposeRule(ctx context.Context, text string) (string, *store.Ap
 	if _, err := core.ParseRule("nueva", 50, d.Match, d.Outcome); err != nil {
 		return "No me salió una regla válida (" + err.Error() + "). Probá de nuevo más concreto.", nil
 	}
+	// "si escribe Liliana": el nombre visible se falsifica. Si Liliana es un cliente conocido, la regla usa su mail o teléfono.
+	var m core.RuleMatch
+	_ = json.Unmarshal(d.Match, &m)
+	warn := ""
+	for i, who := range m.SenderIncludesAny {
+		if strings.Contains(who, "@") || len(digitsOnly(who)) >= 8 {
+			continue
+		}
+		if c, _ := a.findCustomer(ctx, who); c != nil && (c.Email != "" || c.Phone != "") {
+			if c.Email != "" {
+				m.SenderIncludesAny[i] = c.Email
+			} else {
+				m.SenderIncludesAny[i] = c.Phone
+			}
+			continue
+		}
+		warn = "\nOjo: \"" + who + "\" va por nombre visible: cualquiera que use ese nombre la activa. Si me pasás su mail o teléfono, es más segura."
+	}
+	d.Match, _ = json.Marshal(m)
 	spec, _ := json.Marshal(map[string]json.RawMessage{"match": d.Match, "outcome": d.Outcome})
 	summary := strings.TrimSpace(d.Summary)
 	if summary == "" {
 		summary = core.Truncate(text, 80)
 	}
 	ap := store.Approval{Area: "Reglas", Risk: "bajo", Title: core.Truncate("Regla: "+summary, 90),
-		Detail: "Así la entendí:\n" + string(spec), Action: store.Action{Type: "rule.add", Text: string(spec)}}
+		Detail: "Así la entendí:\n" + string(spec) + warn, Action: store.Action{Type: "rule.add", Text: string(spec)}}
 	id, err := a.store.CreateApproval(ctx, ap)
 	if err != nil {
 		return "No pude guardarla para que la apruebes: " + err.Error(), nil

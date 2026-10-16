@@ -155,6 +155,17 @@ func (a *Agent) issueCredit(ctx context.Context, ap store.Approval, by string) s
 	if err != nil || inv == nil || inv.ID != ap.Action.Ref {
 		return "No encontré la factura a anular."
 	}
+	// se vuelve a mirar lo ya anulado: puede haber dos tarjetas para la misma factura (devolución y /anular)
+	credited, err := a.store.CreditedFor(ctx, inv.ID)
+	if err != nil {
+		return "No pude revisar lo ya anulado de esa factura: " + err.Error()
+	}
+	if left := inv.Total - credited; ap.Action.Amount > left+0.005 {
+		if left <= 0 {
+			return inv.Label + " ya está anulada entera."
+		}
+		return fmt.Sprintf("No la emití: de %s quedan %s sin anular.", inv.Label, pesos(left))
+	}
 	nc := arca.Invoice{CbteTipo: 13, Concepto: a.invoiceCfg.Concepto, Total: ap.Action.Amount, DocTipo: 99, Date: time.Now(),
 		Assoc: &arca.Assoc{Tipo: 11, PtoVta: invoicePtoVta(inv.Label), Nro: inv.Number, Date: inv.CreatedAt}}
 	r, err := a.invoicer.Authorize(ctx, nc)

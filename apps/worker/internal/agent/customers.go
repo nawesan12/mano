@@ -21,12 +21,12 @@ func touchFrom(ev core.Event, t core.Triage) (store.Touch, bool) {
 	case "whatsapp":
 		tc.Phone, tc.Name = str("phone"), str("name")
 	case "gmail":
-		tc.Email, tc.Name = emailOf("", ev.Sender), speakableName(ev.Sender)
+		tc.Email, tc.Name = core.MailAddress(ev.Sender), speakableName(ev.Sender)
 	case "mercadopago":
 		if !strings.Contains(ev.Sender, "@") {
 			return tc, false
 		}
-		tc.Email, tc.Name = emailOf("", ev.Sender), speakableName(ev.Sender)
+		tc.Email, tc.Name = core.MailAddress(ev.Sender), speakableName(ev.Sender)
 		if ev.Kind == "payment.approved" && ev.Amount != nil {
 			tc.Paid = *ev.Amount
 		}
@@ -50,7 +50,7 @@ func (a *Agent) customerContext(ctx context.Context, ev core.Event) string {
 	phone, _ := ev.Payload["phone"].(string)
 	email := ""
 	if ev.Source == "gmail" {
-		email = emailOf("", ev.Sender)
+		email = core.MailAddress(ev.Sender)
 	}
 	c, err := a.store.CustomerByPhoneOrEmail(ctx, phone, email)
 	if err != nil || c == nil {

@@ -100,8 +100,14 @@ func (r Rule) Matches(ev Event) bool {
 	if m.Kind != "" && m.Kind != ev.Kind {
 		return false
 	}
-	if len(m.SenderIncludesAny) > 0 && !containsAny(ev.Sender, m.SenderIncludesAny) {
-		return false
+	if len(m.SenderIncludesAny) > 0 {
+		hit := false
+		for _, n := range m.SenderIncludesAny {
+			hit = hit || senderMatches(ev.Sender, n)
+		}
+		if !hit {
+			return false
+		}
 	}
 	if len(m.TextIncludesAny) > 0 && !containsAny(ev.Subject+"\n"+ev.Body, m.TextIncludesAny) {
 		return false

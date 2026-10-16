@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/nawesan12/mano/worker/internal/core"
 	"github.com/nawesan12/mano/worker/internal/mercadopago"
@@ -75,16 +77,32 @@ func (a *Agent) payout(ctx context.Context, ap store.Approval, by string) string
 	if err := json.Unmarshal([]byte(ap.Action.Ref), &d); err != nil {
 		return "El destino estaba roto, no transferí nada."
 	}
-	if why := a.checkLimits(ctx, ap.Action.Amount); why != "" { // se vuelve a mirar: pudo haber otras en el medio
+	ref := "mano-payout-" + ap.ID
+	// El tope y el registro van juntos y bajo candado: dos aprobaciones a la vez no pasan las dos el tope,
+	// y la fila existe ANTES de mandar (si se corta después, la plata cuenta y queda para revisar).
+	a.payoutMu.Lock()
+	if why := a.checkLimits(ctx, ap.Action.Amount); why != "" {
+		a.payoutMu.Unlock()
 		return "No transferí: " + why + "."
 	}
-	ref := "mano-payout-" + ap.ID
-	res, err := a.transfers.Send(ctx, ref, ap.Action.Text, d, ap.Action.Amount, a.transferNotify)
-	if err != nil {
-		_ = a.store.Log(ctx, store.LogEntry{Area: "Transferencias", Tool: "mp.payout", Summary: "Falló la transferencia a " + d.String() + ": " + core.Truncate(err.Error(), 120), Via: "code", ApprovedBy: by})
-		return "No pude transferir: " + err.Error()
+	if err := a.store.InsertPayout(ctx, store.Payout{ID: ref, Destination: d.String(), Amount: ap.Action.Amount, Reason: ap.Action.Text, Status: "sending"}); err != nil {
+		a.payoutMu.Unlock()
+		return "No transferí: no pude registrarla antes de mandarla (" + err.Error() + ")."
 	}
-	_ = a.store.InsertPayout(ctx, store.Payout{ID: ref, PayoutID: res.ID, Destination: d.String(), Amount: ap.Action.Amount, Reason: ap.Action.Text, Status: res.Status})
+	a.payoutMu.Unlock()
+
+	res, err := a.transfers.Send(context.WithoutCancel(ctx), ref, ap.Action.Text, d, ap.Action.Amount, a.transferNotify)
+	if err != nil {
+		var h *core.HTTPError
+		status, msg := "unknown", "No sé si salió: "+err.Error()+". Revisalo en Mercado Pago; cuenta para el tope hasta que se aclare."
+		if errors.As(err, &h) || strings.Contains(err.Error(), "no habilitó") {
+			status, msg = "error", "No pude transferir: "+err.Error()
+		}
+		_ = a.store.SetPayoutStatus(ctx, ref, status)
+		_ = a.store.Log(ctx, store.LogEntry{Area: "Transferencias", Tool: "mp.payout", Summary: "Transferencia a " + d.String() + " " + status + ": " + core.Truncate(err.Error(), 120), Via: "code", ApprovedBy: by})
+		return msg
+	}
+	_ = a.store.SetPayoutSent(ctx, ref, res.ID, res.Status)
 	_ = a.store.Log(ctx, store.LogEntry{Area: "Transferencias", Tool: "mp.payout", Summary: fmt.Sprintf("Transfirió %s a %s (%s)", mercadopago.Money(ap.Action.Amount), d.String(), ap.Action.Text), Via: "code", ApprovedBy: by})
 	return fmt.Sprintf("Transferencia de %s a %s en camino. Te aviso cuando se acredite.", mercadopago.Money(ap.Action.Amount), d.String())
 }

@@ -34,7 +34,8 @@ func (p *PanelAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	// sin el contexto del pedido: si el panel corta, lo que ya arrancó (una transferencia) termina y queda registrado
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
 	defer cancel()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": p.Decide(ctx, in.ID, in.Decision)})

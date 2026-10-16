@@ -57,7 +57,7 @@ func (a *Agent) ProposeCharge(ctx context.Context, who string, amount float64, d
 	}
 	preview := chargeMessage(name, desc, amount, "[link de Mercado Pago]")
 	ap := store.Approval{Area: "Cobros", Risk: "medio", Title: core.Truncate(fmt.Sprintf("Cobrarle %s a %s: %s", mercadopago.Money(amount), name, desc), 90),
-		Detail: "Armo el link (vence en 7 días) y le mando por WhatsApp:\n" + preview,
+		Detail: "Para: " + name + " (+" + c.Phone + ")\nArmo el link (vence en 7 días) y le mando por WhatsApp:\n" + preview,
 		Action: store.Action{Type: "mp.link", To: c.Phone, Subject: name, Text: core.Truncate(desc, 200), Amount: amount}}
 	id, err := a.store.CreateApproval(ctx, ap)
 	if err != nil {

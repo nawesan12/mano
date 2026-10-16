@@ -35,3 +35,11 @@ export async function verify(secret: string | undefined, token: string | undefin
 export function samePassword(a: string, b: string): boolean {
   return equal(a, b);
 }
+
+// sessionKey: la cookie se firma con SESSION_SECRET si existe (recomendado: una cookie filtrada no sirve para
+// adivinar la contraseña, y rotarlo cierra todas las sesiones). Si no, con la contraseña.
+export function sessionKey(): string | undefined {
+  const pass = process.env.PANEL_PASSWORD;
+  if (!pass) return undefined; // sin contraseña el panel no abre
+  return process.env.SESSION_SECRET || pass;
+}

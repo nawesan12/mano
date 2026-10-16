@@ -179,7 +179,7 @@ func TestCriticalCallsOwner(t *testing.T) {
 	db.Set("rules", rules)
 
 	_ = a.OnEvent(ctx, mail("m7", "Corralón <pagos@corralon.com>", "Les pasamos el nuevo CBU"))
-	if len(fc.reqs) != 1 || fc.reqs[0].ApprovalID == "" || fc.reqs[0].When.Urgency != core.Critical || !strings.Contains(fc.reqs[0].Detail, "nuevo CBU") {
+	if len(fc.reqs) != 1 || fc.reqs[0].ApprovalID == "" || fc.reqs[0].When.Urgency != core.Critical || !strings.Contains(fc.reqs[0].Detail, "de: Corralón") || strings.Contains(fc.reqs[0].Detail, "Les pasamos") {
 		t.Fatalf("lo crítico llama con la aprobación lista: %+v", fc.reqs)
 	}
 	_ = a.OnEvent(ctx, mail("m8", "Liliana <lili@mail.com>", "¿Hablamos?"))
@@ -492,9 +492,13 @@ func TestRefundNeedsButton(t *testing.T) {
 type fakeTransfers struct {
 	sent   []string
 	status string
+	netErr bool
 }
 
 func (f *fakeTransfers) Send(_ context.Context, ref, _ string, d mercadopago.Destination, amount float64, _ string) (mercadopago.PayoutResult, error) {
+	if f.netErr {
+		return mercadopago.PayoutResult{}, errors.New("conexión cortada")
+	}
 	f.sent = append(f.sent, ref+":"+d.Email)
 	return mercadopago.PayoutResult{ID: "POP1", Status: "created"}, nil
 }
@@ -1060,5 +1064,68 @@ func TestTomorrowReminders(t *testing.T) {
 	}
 	if len(nt.sent) != 1 || !strings.HasPrefix(nt.sent[0], "5491111111111: Hola Ana") || !strings.Contains(nt.sent[0], "| Ana,") {
 		t.Fatal(nt.sent)
+	}
+}
+
+// Dos tarjetas aprobadas que juntas pasan el tope: la segunda se frena al ejecutar. Un corte de red cuenta para el tope.
+func TestPayoutCapAtExecutionAndUnknown(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, _, _ := setup(t)
+	tr := &fakeTransfers{}
+	a.SetTransfers(tr, TransferLimits{PerOp: 100000, PerDay: 150000}, "")
+	dest := mercadopago.Destination{Email: "prov@mail.com"}
+	_, ap1 := a.ProposePayout(ctx, dest, 90000, "uno")
+	_, ap2 := a.ProposePayout(ctx, dest, 90000, "dos") // las dos pasan al proponer
+	_ = a.OnDecision(ctx, ap1.ID, Approve, "panel")
+	if got := a.OnDecision(ctx, ap2.ID, Approve, "panel"); !strings.Contains(got, "tope diario") || len(tr.sent) != 1 {
+		t.Fatal("la segunda se frena al ejecutar:", got)
+	}
+	tr.netErr = true
+	_, ap3 := a.ProposePayout(ctx, mercadopago.Destination{Email: "otro@mail.com"}, 10000, "tres")
+	if got := a.OnDecision(ctx, ap3.ID, Approve, "panel"); !strings.Contains(got, "No sé si salió") {
+		t.Fatal(got)
+	}
+	var unknown bool
+	for _, p := range db.Rows("mp_payouts") {
+		unknown = unknown || p["status"] == "unknown"
+	}
+	if !unknown {
+		t.Fatal("queda registrada como desconocida (y cuenta para el tope)")
+	}
+}
+
+// Dos notas de crédito por el total de la misma factura: la segunda no se emite.
+func TestCreditNotesNeverExceedInvoice(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, _, _ := setup(t)
+	inv := &fakeInvoicer{}
+	a.SetInvoicer(inv, InvoiceConfig{CbteTipo: 11, Concepto: 2})
+	db.Set("invoices", []map[string]any{{"id": "inv-1", "tenant_id": tenant, "label": "Factura C 0003-00000124", "cbte_tipo": 11, "number": 124,
+		"customer": "Juan", "total": 150000, "created_at": "2026-10-10T12:00:00Z"}})
+	_, c1 := a.ProposeCreditByNumber(ctx, 124, 0)
+	_, c2 := a.ProposeCreditByNumber(ctx, 124, 0)
+	_ = a.OnDecision(ctx, c1.ID, Approve, "panel")
+	if got := a.OnDecision(ctx, c2.ID, Approve, "panel"); !strings.Contains(got, "ya está anulada") || len(inv.got) != 1 {
+		t.Fatal(got, len(inv.got))
+	}
+}
+
+// "Llamame si escribe Liliana": si es una clienta conocida, la regla usa su mail (el nombre visible se falsifica).
+func TestRuleNamesBecomeAddresses(t *testing.T) {
+	ctx := context.Background()
+	a, db, cheap, _, _, _ := setup(t)
+	db.Set("customers", []map[string]any{{"id": "c1", "tenant_id": tenant, "name": "Liliana Ruiz", "email": "lili@ruiz.com"}})
+	cheap.Reply = func(core.Request) string {
+		return `{"match":{"senderIncludesAny":["Liliana"]},"outcome":{"urgency":"high","notify":"call"},"summary":"Te llamo si escribe Liliana"}`
+	}
+	_, ap := a.ProposeRule(ctx, "llamame si escribe Liliana")
+	if ap == nil || !strings.Contains(ap.Action.Text, "lili@ruiz.com") || strings.Contains(ap.Detail, "Ojo") {
+		t.Fatalf("%+v", ap)
+	}
+	cheap.Reply = func(core.Request) string {
+		return `{"match":{"senderIncludesAny":["Desconocido"]},"outcome":{"urgency":"high"}}`
+	}
+	if _, ap := a.ProposeRule(ctx, "avisame si escribe Desconocido"); ap == nil || !strings.Contains(ap.Detail, "nombre visible") {
+		t.Fatal("por nombre, avisa que se falsifica")
 	}
 }

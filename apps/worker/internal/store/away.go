@@ -35,8 +35,13 @@ func (s *Store) StartAway(ctx context.Context, until time.Time, reply string) er
 	return s.do(ctx, http.MethodPost, "away", url.Values{"on_conflict": {"tenant_id"}}, []any{row}, "resolution=merge-duplicates", nil)
 }
 
-func (s *Store) ApproveAwayReply(ctx context.Context) error {
-	return s.do(ctx, http.MethodPatch, "away", s.q("active", "is.true"), map[string]any{"reply_approved": true}, "", nil)
+// ApproveAwayReply aprueba el texto SOLO si sigue siendo el de la ausencia activa (una tarjeta vieja no aprueba otro texto).
+func (s *Store) ApproveAwayReply(ctx context.Context, reply string) (bool, error) {
+	var out []struct {
+		Active bool `json:"active"`
+	}
+	err := s.do(ctx, http.MethodPatch, "away", s.q("active", "is.true", "reply", "eq."+reply, "select", "active"), map[string]any{"reply_approved": true}, "return=representation", &out)
+	return len(out) > 0, err
 }
 
 // EndAway termina la ausencia. Devuelve false si no había una activa (para no mandar dos resúmenes).

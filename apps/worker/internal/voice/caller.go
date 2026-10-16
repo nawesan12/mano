@@ -150,7 +150,7 @@ func (c *Caller) CallOwner(ctx context.Context, r agent.CallRequest) (string, er
 		c.missed(r, status, pol)
 		return "", nil
 	}
-	c.talk(ctx, callID, "out", c.ownerConvo(ctx, media, r.Reason, r.Detail), media, sig)
+	c.talk(ctx, callID, "out", c.ownerConvo(ctx, media, r.Reason, r.Detail, r.EventID != ""), media, sig)
 	return "", nil
 }
 
@@ -267,15 +267,19 @@ type convo struct {
 }
 
 // ownerConvo: con el dueño, Mano puede aprobar, descartar, silenciar, recordar y cortar.
-func (c *Caller) ownerConvo(ctx context.Context, media Media, reason, detail string) convo {
+func (c *Caller) ownerConvo(ctx context.Context, media Media, reason, detail string, fromEvent bool) convo {
 	facts, _ := c.Store.Facts(ctx)
 	missions, _ := c.Store.Missions(ctx)
 	pending, _ := c.Store.PendingApprovals(ctx)
+	tools := OwnerTools
+	if fromEvent {
+		tools = EventTools
+	}
 	return convo{
 		reason: reason, approvedBy: "voz",
 		instructions: Instructions(agent.OwnerSystem(facts, missions), reason, detail, pending),
-		tools:        Tools(OwnerTools...),
-		sess:         newSession(media, c.Decider, c.Store, "voz:"+c.OwnerPhone, pending, OwnerTools),
+		tools:        Tools(tools...),
+		sess:         newSession(media, c.Decider, c.Store, "voz:"+c.OwnerPhone, pending, tools),
 		report:       func(s string) string { return s },
 		failNote:     "Te atendí pero se me cortó la voz. Te dejo el motivo por acá: " + reason,
 	}
@@ -466,7 +470,7 @@ func (c *Caller) answer(ctx context.Context, ev whatsapp.CallEvent) {
 	c.listen(ev.ID, sig)
 	defer c.live.Delete(ev.ID)
 	_ = c.Store.InsertCall(ctx, store.Call{ID: ev.ID, Direction: "in", Reason: "Me llamaste", Status: "accepted", Attempt: 1})
-	c.talk(ctx, ev.ID, "in", c.ownerConvo(ctx, media, "El dueño te llamó. Preguntale en qué lo ayudás y contale lo pendiente si hay algo.", ""), media, sig)
+	c.talk(ctx, ev.ID, "in", c.ownerConvo(ctx, media, "El dueño te llamó. Preguntale en qué lo ayudás y contale lo pendiente si hay algo.", "", false), media, sig)
 }
 
 // CallNow es /llamame: llama ya con lo pendiente, sin mirar horario ni tope.

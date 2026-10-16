@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nawesan12/mano/worker/internal/core"
@@ -76,6 +77,7 @@ type Agent struct {
 	invoicer       Invoicer
 	invoiceCfg     InvoiceConfig
 	transfers      Transfers
+	payoutMu       sync.Mutex
 	transferLimits TransferLimits
 	transferNotify string
 	loc            *time.Location
@@ -188,7 +190,9 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		if ev.Sender != "" {
 			reason += " (de " + ev.Sender + ")"
 		}
-		req := CallRequest{Reason: reason, Detail: core.CompactEvent(ev, 1500), EventID: eventID, ApprovalID: approvalID, Attempt: 1,
+		// Al modelo de voz no va el cuerpo del tercero (puede traer instrucciones): solo quién, asunto y el resumen.
+		detail := fmt.Sprintf("de: %s\nasunto: %s\nresumen: %s", core.Truncate(ev.Sender, 120), core.Truncate(ev.Subject, 120), core.Truncate(t.Summary, 240))
+		req := CallRequest{Reason: reason, Detail: detail, EventID: eventID, ApprovalID: approvalID, Attempt: 1,
 			When: core.CallRequest{Urgency: t.Urgency, Forced: t.Notify == core.NotifyCall, IgnoreQuiet: t.IgnoreQuiet}}
 		base := context.WithoutCancel(ctx)
 		a.spawn(func() {
@@ -302,14 +306,32 @@ Devolvé JSON: {"title":"qué hace la respuesta, en 8 palabras","risk":"bajo|med
 
 	str := func(key string) string { v, _ := ev.Payload[key].(string); return v }
 	action := store.Action{Type: k.action, Body: d.Reply}
+	to := ""
 	switch k.action {
 	case "gmail.reply":
 		action.ThreadID, action.MessageID, action.Subject = str("threadId"), str("messageId"), ev.Subject
-		action.To = emailOf(str("replyTo"), ev.Sender)
+		action.From = core.MailAddress(ev.Sender)
+		action.To = core.MailAddress(str("replyTo"))
+		if action.To == "" {
+			action.To = action.From
+		}
+		to = action.To
 	case "whatsapp.reply":
-		action.To = str("phone")
+		action.To, action.From = str("phone"), str("phone")
+		to = "+" + action.To
 	}
-	ap := store.Approval{TaskID: taskID, Area: k.area, Risk: d.Risk, Title: core.Truncate(d.Title, 90), Detail: d.Why + "\n\n— Borrador —\n" + d.Reply, Action: action}
+	if action.To == "" {
+		_ = a.store.SetTask(ctx, taskID, "failed", map[string]any{"result": map[string]string{"error": "sin destinatario válido"}})
+		_ = a.notify.Send(ctx, "No armé respuesta para \""+subject+"\": el remitente no tiene una dirección válida.")
+		return ""
+	}
+	// la tarjeta dice siempre a quién va; si no es quien escribió, se avisa y sube el riesgo
+	header := "Para: " + to + "\n"
+	if action.From != "" && action.To != action.From {
+		header += "Ojo: la respuesta va a " + action.To + ", que no es la dirección que envió el mail (" + action.From + "). Confirmá que sea correcta.\n"
+		d.Risk = "alto"
+	}
+	ap := store.Approval{TaskID: taskID, Area: k.area, Risk: d.Risk, Title: core.Truncate(d.Title, 90), Detail: header + d.Why + "\n\n— Borrador —\n" + d.Reply, Action: action}
 	id, err := a.store.CreateApproval(ctx, ap)
 	if err != nil {
 		slog.Error("createApproval", "err", err)
@@ -319,17 +341,6 @@ Devolvé JSON: {"title":"qué hace la respuesta, en 8 palabras","risk":"bajo|med
 	_ = a.store.SetTask(ctx, taskID, "awaiting_approval", map[string]any{"cost_usd": r.CostUSD, "plan": map[string]any{"draft": d}})
 	_ = a.notify.ApprovalCard(ctx, ap)
 	return id
-}
-
-func emailOf(replyTo, sender string) string {
-	s := replyTo
-	if s == "" {
-		s = sender
-	}
-	if i, j := strings.Index(s, "<"), strings.Index(s, ">"); i >= 0 && j > i {
-		return s[i+1 : j]
-	}
-	return strings.TrimSpace(s)
 }
 
 type Decision string
@@ -344,7 +355,12 @@ const (
 func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string) string {
 	// Lo que mueve plata se aprueba solo con el botón: una voz se puede imitar o entender mal.
 	if d == Approve && strings.HasPrefix(by, "voz") {
-		if ap, err := a.store.GetApproval(ctx, id); err == nil && ap != nil && moneyActions[ap.Action.Type] {
+		// falla cerrado: si no se puede comprobar qué es, por voz no se aprueba
+		ap, err := a.store.GetApproval(ctx, id)
+		if err != nil || ap == nil {
+			return "No pude comprobar qué es esa aprobación: aprobala con el botón."
+		}
+		if moneyActions[ap.Action.Type] {
 			return "Eso mueve plata: aprobalo con el botón de la tarjeta, no por voz."
 		}
 	}
@@ -361,8 +377,9 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 	}
 
 	switch {
-	case d == IgnoreSender && ap.Action.To != "":
-		sender, source, what := ap.Action.To, "gmail", "mails"
+	case d == IgnoreSender && ap.Action.From != "":
+		// se silencia a quien escribió (dirección exacta), nunca al Reply-To: así no se puede envenenar la regla
+		sender, source, what := ap.Action.From, "gmail", "mails"
 		if ap.Action.Type == "whatsapp.reply" {
 			source, what = "whatsapp", "mensajes"
 		}
