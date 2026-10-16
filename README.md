@@ -295,7 +295,7 @@ Con `GMAIL_ARCHIVE_IGNORED=true`, lo que Mano ignora (newsletters, `noreply`, av
 - **Te avisa:** el resumen de la mañana dice cuántos archivó.
 - **Deshacer:** `/desarchivar` devuelve lo de la última semana, y `/desarchivar tienda.com` solo lo de ese remitente.
 
-Requiere el scope `gmail.modify` en el refresh token. Correr `0020_inbox_limpio.sql`.
+Requiere el scope `gmail.modify` en el refresh token, y que la misión de **inbox** esté en nivel 2 (**Ejecuta y avisa**) desde el panel → Misiones. En "Observa" o "Prepara" no archiva aunque esté habilitado. Correr `0020_inbox_limpio.sql`.
 
 ## Memoria con búsqueda
 
@@ -326,6 +326,8 @@ Los precios (`*_PRICE_IN/OUT`) siempre se cargan a mano con la tarifa vigente: s
 - **Reglas:** cada regla en una frase, con sus usos; se pueden pausar.
 - **Memoria:** agregar u olvidar datos del negocio.
 - **Registro:** todo lo que hizo Mano, quién lo aprobó y cuánto costó.
+- **Misiones:** el nivel de autonomía de cada una (Observa, Prepara, Ejecuta y avisa, Piloto automático), pausarlas y agregar nuevas. El nivel manda: por ejemplo, el inbox limpio solo archiva en nivel 2 o más. Lo que mueve plata o habla por vos siempre pide tu ok, en cualquier nivel.
+- **Conexiones:** qué integraciones tiene activas el worker (`GET /api/status`, con `PANEL_TOKEN`).
 
 Supabase Auth con varios usuarios queda para la Fase 1.
 

@@ -39,3 +39,19 @@ func (p *PanelAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": p.Decide(ctx, in.ID, in.Decision)})
 }
+
+// StatusAPI le dice al panel qué integraciones están activas. Mismo token que las decisiones.
+type StatusAPI struct {
+	Token  string
+	Status map[string]bool
+}
+
+func (p *StatusAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if p.Token == "" || !ok || subtle.ConstantTimeCompare([]byte(tok), []byte(p.Token)) != 1 {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(p.Status)
+}

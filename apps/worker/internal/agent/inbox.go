@@ -21,7 +21,7 @@ func (a *Agent) SetArchiver(ar Archiver) { a.archiver = ar }
 
 // archiveIgnored: nivel 2 de autonomía, hace lo reversible y avisa (en el resumen).
 func (a *Agent) archiveIgnored(ctx context.Context, ev core.Event, t core.Triage) {
-	if a.archiver == nil || ev.Source != "gmail" || t.Urgency != core.Ignore {
+	if a.archiver == nil || ev.Source != "gmail" || t.Urgency != core.Ignore || !a.allows(ctx, "inbox", 2) {
 		return
 	}
 	if err := a.archiver.Archive(ctx, ev.ExternalID); err != nil {
@@ -73,4 +73,24 @@ func (a *Agent) Unarchive(ctx context.Context, sender string) string {
 		msg += " Si querés que no se archiven más los de " + sender + ", decime: /regla avisame los mails de " + sender
 	}
 	return msg
+}
+
+// allows dice si el dueño le dio a esa área al menos ese nivel de autonomía (0 observa · 1 prepara ·
+// 2 ejecuta y avisa · 3 piloto). Sin misión del área, se respeta lo que diga la configuración.
+func (a *Agent) allows(ctx context.Context, area string, level int) bool {
+	missions, err := a.store.Missions(ctx)
+	if err != nil {
+		return false
+	}
+	found := false
+	for _, m := range missions {
+		if m.Area != area {
+			continue
+		}
+		found = true
+		if m.Autonomy >= level {
+			return true
+		}
+	}
+	return !found
 }

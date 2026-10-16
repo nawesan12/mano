@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 
 const items = [
   { href: '/', label: 'Inicio' },
+  { href: '/misiones', label: 'Misiones' },
   { href: '/llamadas', label: 'Llamadas' },
   { href: '/clientes', label: 'Clientes' },
   { href: '/cobros', label: 'Cobros' },
@@ -12,6 +13,7 @@ const items = [
   { href: '/memoria', label: 'Memoria' },
   { href: '/diagnostico', label: 'Diagnóstico' },
   { href: '/registro', label: 'Registro' },
+  { href: '/conexiones', label: 'Conexiones' },
 ];
 
 export default function Nav({ pending }: { pending: number }) {
