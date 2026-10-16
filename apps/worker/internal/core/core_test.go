@@ -308,3 +308,62 @@ func TestPlaybooksAreValid(t *testing.T) {
 		t.Fatalf("%+v", tr)
 	}
 }
+
+// fakeOpenAI responde como /chat/completions o con el código que se le pida.
+func fakeOpenAI(t *testing.T, status int, text string, hits *int) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*hits++
+		if r.URL.Path != "/v1beta/openai/chat/completions" && r.URL.Path != "/chat/completions" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if status != 200 {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"error":{"message":"no"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"model":"m","choices":[{"message":{"content":"` + text + `"}}],"usage":{"prompt_tokens":1000,"completion_tokens":1000}}`))
+	}))
+}
+
+func TestProviderPresets(t *testing.T) {
+	for _, p := range []string{"gemini", "deepseek", "openrouter", "groq", "mistral", "xai", "ollama", "anthropic"} {
+		if Providers[p] == "" {
+			t.Errorf("falta el preset %s", p)
+		}
+	}
+	var hits int
+	srv := fakeOpenAI(t, 200, "hola", &hits)
+	defer srv.Close()
+	// con BASE_URL explícita manda esa; el path de Gemini (/v1beta/openai) se respeta
+	m := NewLLM(ModelConfig{Tier: Cheap, Provider: "gemini", Model: "gemini-flash", BaseURL: srv.URL + "/v1beta/openai/", PriceIn: 1, PriceOut: 1})
+	if r, err := m.Complete(context.Background(), Request{Messages: []Message{{Role: "user", Content: "x"}}, MaxTokens: 10}); err != nil || r.Text != "hola" {
+		t.Fatal(r, err)
+	}
+}
+
+func TestFallbackOnlyWhenItHelps(t *testing.T) {
+	var downHits, badHits, okHits int
+	down := fakeOpenAI(t, 503, "", &downHits)
+	bad := fakeOpenAI(t, 400, "", &badHits)
+	ok := fakeOpenAI(t, 200, "respaldo", &okHits)
+	defer down.Close()
+	defer bad.Close()
+	defer ok.Close()
+	mk := func(url string, price float64) LLM {
+		return NewLLM(ModelConfig{Tier: Top, Provider: "openai-compatible", Model: url, BaseURL: url, PriceIn: price, PriceOut: price})
+	}
+	req := Request{Messages: []Message{{Role: "user", Content: "x"}}, MaxTokens: 10}
+
+	r, err := WithFallback(mk(down.URL, 10), mk(ok.URL, 1)).Complete(context.Background(), req)
+	if err != nil || r.Text != "respaldo" || r.Model == down.URL || math.Abs(r.CostUSD-0.002) > 1e-9 || r.Tier != Top {
+		t.Fatalf("caído → respaldo, con el costo del que respondió: %+v %v", r, err)
+	}
+	okHits = 0
+	if _, err := WithFallback(mk(bad.URL, 10), mk(ok.URL, 1)).Complete(context.Background(), req); err == nil || okHits != 0 {
+		t.Fatal("un 400 no se reintenta en otro proveedor")
+	}
+	if WithFallback(mk(ok.URL, 1), nil) == nil {
+		t.Fatal("sin respaldo devuelve el principal")
+	}
+}

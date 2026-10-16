@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nawesan12/mano/worker/internal/config"
+	"github.com/nawesan12/mano/worker/internal/core"
 	"github.com/nawesan12/mano/worker/internal/google"
 	"github.com/nawesan12/mano/worker/internal/mercadolibre"
 	"github.com/nawesan12/mano/worker/internal/mercadopago"
@@ -40,6 +41,17 @@ func runCheck(cfg config.Config) bool {
 	if err == nil {
 		_, err = st.CallPolicy(ctx)
 		report("Migraciones", err, "tabla call_policy presente")
+	}
+
+	// Un pedido mínimo a cada modelo: valida key, URL y nombre del modelo (cuesta fracciones de centavo).
+	ping := func(name string, mc core.ModelConfig) {
+		r, err := core.NewLLM(mc).Complete(ctx, core.Request{Messages: []core.Message{{Role: "user", Content: "Respondé solo: ok"}}, MaxTokens: 5})
+		report(name, err, mc.Provider+" · "+mc.Model+" · "+strings.TrimSpace(core.Truncate(r.Text, 20)))
+	}
+	ping("Modelo barato", core.ModelConfig{Tier: core.Cheap, Provider: cfg.CheapProvider, Model: cfg.CheapModel, APIKey: cfg.CheapKey, BaseURL: cfg.CheapBaseURL, PriceIn: cfg.CheapPriceIn, PriceOut: cfg.CheapPriceOut})
+	ping("Modelo top", core.ModelConfig{Tier: core.Top, Provider: cfg.TopProvider, Model: cfg.TopModel, APIKey: cfg.TopKey, BaseURL: cfg.TopBaseURL, PriceIn: cfg.TopPriceIn, PriceOut: cfg.TopPriceOut})
+	if cfg.FallbackProvider != "" {
+		ping("Modelo de respaldo", core.ModelConfig{Tier: core.Top, Provider: cfg.FallbackProvider, Model: cfg.FallbackModel, APIKey: cfg.FallbackKey, BaseURL: cfg.FallbackBaseURL, PriceIn: cfg.FallbackPriceIn, PriceOut: cfg.FallbackPriceOut})
 	}
 
 	if cfg.TelegramEnabled() {

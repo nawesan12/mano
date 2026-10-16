@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nawesan12/mano/worker/internal/core"
 )
 
 type Config struct {
@@ -24,6 +26,9 @@ type Config struct {
 	CheapPriceIn, CheapPriceOut                       float64
 	TopProvider, TopBaseURL, TopKey, TopModel         string
 	TopPriceIn, TopPriceOut                           float64
+	// Respaldo: si el proveedor de un nivel falla (caído, sin cupo, sin saldo), se usa este.
+	FallbackProvider, FallbackBaseURL, FallbackKey, FallbackModel string
+	FallbackPriceIn, FallbackPriceOut                             float64
 
 	STTBaseURL, STTKey, STTModel string
 
@@ -142,10 +147,10 @@ func Load() (Config, error) {
 		}
 		return n
 	}
-	provider := func(k string) string {
-		v := str(k, true)
-		if v != "" && v != "anthropic" && v != "openai-compatible" {
-			missing = append(missing, k+": anthropic u openai-compatible")
+	provider := func(k string, required bool) string {
+		v := strings.ToLower(str(k, required))
+		if _, ok := core.Providers[v]; v != "" && !ok {
+			missing = append(missing, k+": uno de "+core.ProviderNames())
 		}
 		return v
 	}
@@ -167,14 +172,14 @@ func Load() (Config, error) {
 		WAAPIVersion:     def("WA_API_VERSION", "v26.0"),
 		OwnerChannel:     def("OWNER_CHANNEL", "telegram"),
 
-		CheapProvider: provider("CHEAP_PROVIDER"),
+		CheapProvider: provider("CHEAP_PROVIDER", true),
 		CheapBaseURL:  str("CHEAP_BASE_URL", false),
 		CheapKey:      str("CHEAP_API_KEY", false),
 		CheapModel:    str("CHEAP_MODEL", true),
 		CheapPriceIn:  num("CHEAP_PRICE_IN", 0, "USD por millón de tokens de entrada"),
 		CheapPriceOut: num("CHEAP_PRICE_OUT", 0, "USD por millón de tokens de salida"),
 
-		TopProvider: provider("TOP_PROVIDER"),
+		TopProvider: provider("TOP_PROVIDER", true),
 		TopBaseURL:  str("TOP_BASE_URL", false),
 		TopKey:      str("TOP_API_KEY", false),
 		TopModel:    str("TOP_MODEL", true),
@@ -246,6 +251,13 @@ func Load() (Config, error) {
 		}
 	default:
 		missing = append(missing, "OWNER_CHANNEL: telegram o whatsapp")
+	}
+	if c.FallbackProvider = provider("FALLBACK_PROVIDER", false); c.FallbackProvider != "" {
+		c.FallbackBaseURL = str("FALLBACK_BASE_URL", false)
+		c.FallbackKey = str("FALLBACK_API_KEY", false)
+		c.FallbackModel = str("FALLBACK_MODEL", true)
+		c.FallbackPriceIn = num("FALLBACK_PRICE_IN", 0, "USD por millón de tokens de entrada")
+		c.FallbackPriceOut = num("FALLBACK_PRICE_OUT", 0, "USD por millón de tokens de salida")
 	}
 	c.TTSBaseURL = strings.TrimRight(str("TTS_BASE_URL", false), "/")
 	if c.TTSBaseURL != "" {
