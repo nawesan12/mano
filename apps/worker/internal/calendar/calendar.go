@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -360,4 +361,32 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			slog.Error("calendar sync", "err", err)
 		}
 	}()
+}
+
+// CreateEvent crea un evento en el calendario del dueño e invita a los asistentes (requiere calendar.events).
+func (c *Client) CreateEvent(ctx context.Context, title string, start, end time.Time, attendees []string, description string) (string, error) {
+	body := map[string]any{
+		"summary": title, "description": description,
+		"start": map[string]string{"dateTime": start.Format(time.RFC3339)},
+		"end":   map[string]string{"dateTime": end.Format(time.RFC3339)},
+	}
+	if len(attendees) > 0 {
+		var as []map[string]string
+		for _, a := range attendees {
+			as = append(as, map[string]string{"email": a})
+		}
+		body["attendees"] = as
+	}
+	var out struct {
+		ID       string `json:"id"`
+		HTMLLink string `json:"htmlLink"`
+	}
+	q := url.Values{"sendUpdates": {"all"}}
+	if err := c.api(ctx, http.MethodPost, "/calendars/primary/events", q, body, &out); err != nil {
+		if strings.Contains(err.Error(), "403") {
+			return "", errors.New("Google no me deja crear eventos: falta el permiso calendar.events en el refresh token")
+		}
+		return "", err
+	}
+	return out.HTMLLink, nil
 }

@@ -948,3 +948,44 @@ func TestInboxCleanup(t *testing.T) {
 		t.Fatal("en nivel 1 no archiva")
 	}
 }
+
+type fakeScheduler struct{ created []string }
+
+func (f *fakeScheduler) CreateEvent(_ context.Context, title string, start, end time.Time, att []string, _ string) (string, error) {
+	f.created = append(f.created, fmt.Sprintf("%s %s-%s %v", title, start.Format("15:04"), end.Format("15:04"), att))
+	return "https://calendar.google.com/x", nil
+}
+
+func TestAgendarYLibre(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, _, _ := setup(t)
+	sch := &fakeScheduler{}
+	a.SetScheduler(sch)
+	a.loc = time.UTC
+	tomorrow := time.Now().UTC().Add(24 * time.Hour)
+	at := func(h int) string {
+		return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), h, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	}
+	db.Set("calendar_events", []map[string]any{{"tenant_id": tenant, "id": "e1", "summary": "Dentista", "start_at": at(15), "end_at": at(16), "status": "confirmed", "busy": true}})
+	db.Set("customers", []map[string]any{{"id": "c1", "tenant_id": tenant, "name": "Juan Pérez", "email": "juan@mail.com", "contacts": 3}})
+
+	if got := a.Free(ctx, "mañana"); !strings.Contains(got, "tenés libre: 09:00 a 15:00, 16:00 a 18:00") {
+		t.Fatal(got)
+	}
+	_, ap := a.ProposeMeeting(ctx, "mañana a las 15:30", 60, "Firma con Pérez", "perez")
+	if ap == nil || !strings.Contains(ap.Detail, "se pisa con algo de 15:00 a 16:00") || !strings.Contains(ap.Detail, "invitación a juan@mail.com") {
+		t.Fatalf("%+v", ap)
+	}
+	if len(sch.created) != 0 {
+		t.Fatal("no agenda antes de aprobar")
+	}
+	if got := a.OnDecision(ctx, ap.ID, Approve, "test"); !strings.Contains(got, "Agendado: Firma con Pérez") || !strings.Contains(got, "Invitación enviada") {
+		t.Fatal(got)
+	}
+	if sch.created[0] != "Firma con Pérez 15:30-16:30 [juan@mail.com]" {
+		t.Fatal(sch.created)
+	}
+	if msg, ap := a.ProposeMeeting(ctx, "el jueves", 60, "", ""); ap != nil || !strings.Contains(msg, "hora") {
+		t.Fatal("sin hora no agenda:", msg)
+	}
+}

@@ -398,3 +398,35 @@ func TestEmbedder(t *testing.T) {
 		t.Fatal("otro tamaño de vector se explica:", err)
 	}
 }
+
+func TestParseWhenAndFreeSlots(t *testing.T) {
+	ar, _ := time.LoadLocation("America/Argentina/Buenos_Aires")
+	now := time.Date(2026, 10, 15, 10, 0, 0, 0, ar) // jueves
+	for in, want := range map[string]string{
+		"el jueves a las 15": "2026-10-22 15:00", "mañana 9:30": "2026-10-16 09:30", "20/10 10hs": "2026-10-20 10:00",
+		"hoy a las 3": "2026-10-15 15:00", "el lunes 18.15 hs": "2026-10-19 18:15",
+	} {
+		got, err := ParseWhen(in, now, ar)
+		if err != nil || got.Format("2006-01-02 15:04") != want {
+			t.Errorf("%q: %v %v want %s", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"el jueves", "hoy a las 9", "mañana 25"} {
+		if _, err := ParseWhen(bad, now, ar); err == nil {
+			t.Errorf("%q debería fallar", bad)
+		}
+	}
+	day := time.Date(2026, 10, 16, 0, 0, 0, 0, ar)
+	at := func(h, m int) time.Time { return time.Date(2026, 10, 16, h, m, 0, 0, ar) }
+	busy := []Slot{{at(10, 0), at(11, 0)}, {at(10, 30), at(12, 0)}, {at(15, 0), at(15, 20)}, {at(17, 30), at(19, 0)}}
+	var got []string
+	for _, s := range FreeSlots(day, busy, 9, 18, 30*time.Minute) {
+		got = append(got, s.From.Format("15:04")+"-"+s.To.Format("15:04"))
+	}
+	if strings.Join(got, " ") != "09:00-10:00 12:00-15:00 15:20-17:30" {
+		t.Fatal(got)
+	}
+	if len(FreeSlots(day, nil, 9, 18, time.Hour)) != 1 {
+		t.Fatal("día libre: un solo hueco")
+	}
+}
