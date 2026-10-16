@@ -59,6 +59,8 @@ type Config struct {
 	CalendarEnabled              bool
 	PublicURL, CalendarPushToken string
 
+	PanelToken string // token compartido con el panel web para mandar decisiones
+
 	Port     string
 	Location *time.Location
 	BriefAt  string // "07:00"
@@ -191,6 +193,8 @@ func Load() (Config, error) {
 		MPAccessToken:   str("MP_ACCESS_TOKEN", false),
 		MPWebhookSecret: str("MP_WEBHOOK_SECRET", false),
 
+		PanelToken: str("PANEL_TOKEN", false),
+
 		Port:    def("PORT", "8787"),
 		BriefAt: def("BRIEF_AT", "07:00"),
 		CloseAt: str("BRIEF_CLOSE_AT", false),
@@ -200,6 +204,9 @@ func Load() (Config, error) {
 	}
 	if !hhmmRe.MatchString(c.BriefAt) {
 		missing = append(missing, "BRIEF_AT: formato HH:MM")
+	}
+	if c.PanelToken != "" && len(c.PanelToken) < 24 {
+		missing = append(missing, "PANEL_TOKEN: usá al menos 24 caracteres al azar (openssl rand -hex 24)")
 	}
 	if c.CloseAt != "" && !hhmmRe.MatchString(c.CloseAt) {
 		missing = append(missing, "BRIEF_CLOSE_AT: formato HH:MM, o vacío para no mandar cierre")
