@@ -42,6 +42,7 @@ apps/worker/            Go
   internal/tts          notas de voz para lo importante (API compatible con OpenAI)
   internal/server       webhooks de Gmail y otros, /health
   internal/mercadopago  pagos: webhook firmado → evento
+  internal/calendar     Google Calendar: push, sync incremental, movidas, cancelaciones y choques
   internal/schedule     tareas diarias por hora local
 apps/web                panel Next.js (estado, pendientes, registro, gasto)
 supabase                migración con RLS + seed
@@ -54,7 +55,7 @@ supabase                migración con RLS + seed
 3. `cp .env.example .env` y completá. **Importante:** `TOP_PRICE_IN` y `TOP_PRICE_OUT` con la tarifa vigente del proveedor; sin eso el worker no arranca.
 4. `cd apps/worker && make run`. Mandale `/start` al bot, copiá tu chat id a `TELEGRAM_OWNER_CHAT_ID` y reiniciá.
 5. Gmail (opcional para arrancar):
-   - En Google Cloud: habilitá Gmail API y Pub/Sub, creá un OAuth client y sacá el refresh token del dueño (scopes `gmail.readonly` y `gmail.send`).
+   - En Google Cloud: habilitá Gmail API y Pub/Sub, creá un OAuth client y sacá el refresh token del dueño (scopes `gmail.readonly` y `gmail.send`; sumá `calendar.readonly` si vas a usar Calendar).
    - Creá un topic, dale permiso de publicación a `gmail-api-push@system.gserviceaccount.com` y una suscripción push a `https://TU-WORKER/webhooks/gmail?token=GMAIL_PUSH_TOKEN`.
    - El worker registra y renueva el watch solo; para probarlo a mano: `make watch`.
 6. WhatsApp (opcional): ver la sección de abajo.
@@ -78,6 +79,21 @@ Puesta en marcha:
    `Aviso de Mano: {{1}}. Respondé este mensaje para ver el detalle.`
    La variable no puede ir ni al principio ni al final del cuerpo. Mantenela seca y transaccional: si suena promocional, Meta la recategoriza como marketing y cuesta más.
 4. Correr `supabase/migrations/0002_whatsapp.sql`.
+
+## Google Calendar
+
+Mano vigila tu calendario con notificaciones push de Google y sincronización incremental, sin polling. Avisa sin IA de lo que hicieron **otros**:
+
+| Cambio | Urgencia |
+| --- | --- |
+| Te cancelaron una reunión | Alta (nota de voz) |
+| Te movieron una reunión | Alta |
+| Algo nuevo o movido se pisa con otra cosa | Alta |
+| Invitación nueva | Al resumen |
+
+Lo que movés vos no te lo avisa. Mira solo las próximas dos semanas. El resumen de la mañana trae la agenda del día.
+
+Puesta en marcha: habilitá Google Calendar API en el mismo proyecto de Gmail y sacá el refresh token con los scopes de Gmail más `calendar.readonly`. En `.env`: `CALENDAR_ENABLED=true`, `PUBLIC_URL` (https con certificado válido) y `CALENDAR_PUSH_TOKEN`. Correr `0007_calendar.sql`. La primera sincronización solo llena la copia local; el canal push se renueva a diario.
 
 ## Mercado Pago
 

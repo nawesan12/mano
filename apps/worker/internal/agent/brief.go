@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nawesan12/mano/worker/internal/core"
 )
@@ -24,6 +25,9 @@ func (a *Agent) Brief(ctx context.Context) (string, error) {
 			titles[i] = p.Title
 		}
 		pend = fmt.Sprintf("Te esperan %d aprobaciones: %s.", len(pending), strings.Join(titles, "; "))
+	}
+	if ag := a.agenda(ctx); ag != "" {
+		pend = ag + "\n" + pend
 	}
 	spend := fmt.Sprintf("Gasto de IA hoy: USD %.2f · mes USD %.2f de %.0f", sp.DayUSD, sp.MonthUSD, caps.MonthUSD)
 
@@ -65,4 +69,30 @@ func (a *Agent) Brief(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return "Buen día. Esto pasó:\n" + body + "\n\n" + pend + "\n" + spend, nil
+}
+
+// agenda arma la agenda de hoy desde la copia local del calendario. Sin IA.
+func (a *Agent) agenda(ctx context.Context) string {
+	evs, err := a.store.CalendarEvents(ctx)
+	if err != nil || len(evs) == 0 {
+		return ""
+	}
+	now := time.Now().In(a.loc)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, a.loc)
+	end := start.Add(24 * time.Hour)
+	var items []string
+	for _, e := range evs {
+		if e.Status == "cancelled" || e.Start.Before(start) || !e.Start.Before(end) {
+			continue
+		}
+		if e.AllDay {
+			items = append(items, "todo el día: "+e.Summary)
+			continue
+		}
+		items = append(items, e.Start.In(a.loc).Format("15:04")+" "+e.Summary)
+	}
+	if len(items) == 0 {
+		return "Agenda de hoy: libre."
+	}
+	return "Agenda de hoy: " + strings.Join(items, " · ") + "."
 }

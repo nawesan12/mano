@@ -306,3 +306,20 @@ func TestHighGoesAsVoiceNote(t *testing.T) {
 		t.Fatal("sin TTS va por texto")
 	}
 }
+
+func TestBriefIncludesAgenda(t *testing.T) {
+	a, db, _, _, _, _ := setup(t)
+	now := time.Now().In(time.UTC)
+	at := func(h int) string {
+		return time.Date(now.Year(), now.Month(), now.Day(), h, 30, 0, 0, time.UTC).Format(time.RFC3339)
+	}
+	db.Set("calendar_events", []map[string]any{
+		{"tenant_id": tenant, "id": "1", "summary": "Firma contrato", "start_at": at(10), "end_at": at(11), "status": "confirmed"},
+		{"tenant_id": tenant, "id": "2", "summary": "Cancelada", "start_at": at(12), "end_at": at(13), "status": "cancelled"},
+		{"tenant_id": tenant, "id": "3", "summary": "Mañana", "start_at": now.Add(48 * time.Hour).Format(time.RFC3339), "end_at": now.Add(49 * time.Hour).Format(time.RFC3339), "status": "confirmed"},
+	})
+	b, err := a.Brief(context.Background())
+	if err != nil || !strings.Contains(b, "Agenda de hoy: 10:30 Firma contrato.") {
+		t.Fatalf("%q %v", b, err)
+	}
+}
