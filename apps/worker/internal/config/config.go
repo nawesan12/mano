@@ -47,6 +47,10 @@ type Config struct {
 
 	MPAccessToken, MPWebhookSecret string
 
+	// Google Calendar: usa el mismo OAuth que Gmail (el refresh token tiene que incluir calendar.readonly).
+	CalendarEnabled              bool
+	PublicURL, CalendarPushToken string
+
 	Port     string
 	Location *time.Location
 	BriefAt  string // "07:00"
@@ -224,6 +228,18 @@ func Load() (Config, error) {
 		c.TTSModel = def("TTS_MODEL", "gpt-4o-mini-tts")
 		c.TTSVoice = def("TTS_VOICE", "marin")
 		c.TTSPricePerMChars = num("TTS_PRICE_PER_M_CHARS", 0, "USD por millón de caracteres (tarifa vigente)")
+	}
+
+	c.PublicURL = strings.TrimRight(str("PUBLIC_URL", false), "/")
+	c.CalendarEnabled = truthy(os.Getenv("CALENDAR_ENABLED"))
+	if c.CalendarEnabled {
+		c.CalendarPushToken = str("CALENDAR_PUSH_TOKEN", true)
+		if !c.GmailEnabled() {
+			missing = append(missing, "CALENDAR_ENABLED: usa el OAuth de Google, configurá GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y GOOGLE_REFRESH_TOKEN")
+		}
+		if !strings.HasPrefix(c.PublicURL, "https://") {
+			missing = append(missing, "PUBLIC_URL: la URL https pública del worker (Google solo avisa a https con certificado válido)")
+		}
 	}
 
 	c.VoiceEnabled = truthy(os.Getenv("VOICE_ENABLED"))

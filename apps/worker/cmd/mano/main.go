@@ -18,9 +18,11 @@ import (
 	_ "time/tzdata" // zonas horarias embebidas: funciona igual en cualquier VPS o contenedor
 
 	"github.com/nawesan12/mano/worker/internal/agent"
+	"github.com/nawesan12/mano/worker/internal/calendar"
 	"github.com/nawesan12/mano/worker/internal/config"
 	"github.com/nawesan12/mano/worker/internal/core"
 	"github.com/nawesan12/mano/worker/internal/gmail"
+	"github.com/nawesan12/mano/worker/internal/google"
 	"github.com/nawesan12/mano/worker/internal/mercadopago"
 	"github.com/nawesan12/mano/worker/internal/owner"
 	"github.com/nawesan12/mano/worker/internal/schedule"
@@ -152,9 +154,18 @@ func main() {
 		srvCfg.Hooks["/webhooks/mercadopago"] = &mercadopago.Webhook{Client: mercadopago.NewClient(cfg.MPAccessToken),
 			Secret: cfg.MPWebhookSecret, Sink: ag, TenantID: cfg.TenantID, Base: ctx}
 	}
+	var cal *calendar.Service
+	if cfg.CalendarEnabled {
+		cal = &calendar.Service{
+			Client: calendar.NewClient(google.NewAuth(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRefreshToken)),
+			Store:  st, Sink: ag, Loc: cfg.Location, TenantID: cfg.TenantID, PushToken: cfg.CalendarPushToken,
+			Address: cfg.PublicURL + "/webhooks/calendar", Base: ctx,
+		}
+		srvCfg.Hooks["/webhooks/calendar"] = cal
+	}
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: srvCfg.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
-		slog.Info("webhooks escuchando", "port", cfg.Port, "gmail", gm != nil, "whatsapp", waClient != nil, "mercadopago", cfg.MPAccessToken != "")
+		slog.Info("webhooks escuchando", "port", cfg.Port, "gmail", gm != nil, "whatsapp", waClient != nil, "mercadopago", cfg.MPAccessToken != "", "calendar", cfg.CalendarEnabled)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("http", "err", err)
 			stop()
@@ -194,6 +205,20 @@ func main() {
 			slog.Error("seguimiento", "err", err)
 		}
 	})
+
+	if cal != nil {
+		// Primero se llena la copia local (sin avisar), después se pide el push. Google corta el canal a los ~7 días.
+		start := func(c context.Context) {
+			if err := cal.Sync(c); err != nil {
+				slog.Error("calendar sync", "err", err)
+			}
+			if err := cal.Renew(c); err != nil {
+				slog.Error("calendar watch", "err", err)
+			}
+		}
+		go start(ctx)
+		schedule.Daily(ctx, "calendar-watch", "03:10", cfg.Location, start)
+	}
 
 	if gm != nil && cfg.GmailTopic != "" {
 		renew := func(c context.Context) {
