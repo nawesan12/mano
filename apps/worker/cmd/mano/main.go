@@ -94,6 +94,9 @@ func main() {
 		cheap, top = core.WithFallback(cheap, fb(core.Cheap)), core.WithFallback(top, fb(core.Top))
 	}
 	models := agent.NewModels(cheap, top, st, core.Caps{DayUSD: cfg.CapDayUSD, MonthUSD: cfg.CapMonthUSD})
+	if cfg.EmbedProvider != "" {
+		models.Embedder = core.NewEmbedder(cfg.EmbedProvider, cfg.EmbedBaseURL, cfg.EmbedKey, cfg.EmbedModel, cfg.EmbedPrice)
+	}
 	transcriber := stt.New(cfg.STTBaseURL, cfg.STTKey, cfg.STTModel)
 	if speaker := tts.New(cfg.TTSBaseURL, cfg.TTSKey, cfg.TTSModel, cfg.TTSVoice, cfg.TTSPricePerMChars); speaker != nil {
 		models.TTS = speaker // lo importante llega como nota de voz

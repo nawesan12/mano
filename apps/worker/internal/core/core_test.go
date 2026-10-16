@@ -367,3 +367,34 @@ func TestFallbackOnlyWhenItHelps(t *testing.T) {
 		t.Fatal("sin respaldo devuelve el principal")
 	}
 }
+
+func TestEmbedder(t *testing.T) {
+	dims := EmbedDims
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input      []string `json:"input"`
+			Dimensions int      `json:"dimensions"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if r.URL.Path != "/embeddings" || body.Dimensions != EmbedDims {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		vec := make([]float32, dims)
+		data := []map[string]any{}
+		for i := range body.Input {
+			data = append(data, map[string]any{"index": i, "embedding": vec})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data, "usage": map[string]int{"prompt_tokens": 500}})
+	}))
+	defer srv.Close()
+	e := NewEmbedder("openai", srv.URL, "k", "text-embedding-3-small", 0.02)
+	vecs, r, err := e.Embed(context.Background(), []string{"a", "b"})
+	if err != nil || len(vecs) != 2 || len(vecs[0]) != EmbedDims || math.Abs(r.CostUSD-0.00001) > 1e-12 {
+		t.Fatal(len(vecs), r, err)
+	}
+	dims = 768
+	if _, _, err := e.Embed(context.Background(), []string{"a"}); err == nil || !strings.Contains(err.Error(), "1024") {
+		t.Fatal("otro tamaño de vector se explica:", err)
+	}
+}

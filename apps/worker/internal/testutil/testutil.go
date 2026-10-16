@@ -78,6 +78,15 @@ func (f *FakeRest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var out []map[string]any
 	body, _ := io.ReadAll(r.Body)
+	if strings.HasPrefix(table, "rpc/") {
+		// funciones: devuelven lo que el test cargó en Tables["rpc/<nombre>"]
+		out = append(out, f.Tables[table]...)
+		if out == nil {
+			out = []map[string]any{}
+		}
+		_ = json.NewEncoder(w).Encode(out)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		for _, row := range f.Tables[table] {

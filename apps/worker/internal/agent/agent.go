@@ -135,6 +135,10 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		return err
 	}
 	a.learnCustomer(ctx, ev, t)
+	if a.models.Embedder != nil {
+		base := context.WithoutCancel(ctx)
+		a.spawn(func() { a.remember(base, ev, eventID, t) })
+	}
 	a.maybeProposeInvoice(ctx, ev)
 
 	// Ausencia: a los clientes se les responde una vez (si el dueño aprobó el texto) y lo importante espera al resumen.

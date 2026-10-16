@@ -54,6 +54,13 @@ func runCheck(cfg config.Config) bool {
 		ping("Modelo de respaldo", core.ModelConfig{Tier: core.Top, Provider: cfg.FallbackProvider, Model: cfg.FallbackModel, APIKey: cfg.FallbackKey, BaseURL: cfg.FallbackBaseURL, PriceIn: cfg.FallbackPriceIn, PriceOut: cfg.FallbackPriceOut})
 	}
 
+	if cfg.EmbedProvider != "" {
+		_, _, err := core.NewEmbedder(cfg.EmbedProvider, cfg.EmbedBaseURL, cfg.EmbedKey, cfg.EmbedModel, cfg.EmbedPrice).Embed(ctx, []string{"prueba"})
+		report("Embeddings", err, cfg.EmbedModel+" · 1024 dimensiones")
+	} else {
+		skip("Embeddings", "sin configurar: la memoria busca por palabras")
+	}
+
 	if cfg.TelegramEnabled() {
 		user, err := telegram.NewClient(cfg.TelegramToken).Me(ctx)
 		report("Telegram", err, "@"+user)

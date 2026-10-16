@@ -32,6 +32,7 @@ type Synth interface {
 type Models struct {
 	Cheap, Top core.LLM
 	TTS        Synth
+	Embedder   core.Embedder // nil = memoria por palabras
 	store      *store.Store
 	fallback   core.Caps
 	OnHalt     func(reason string)
@@ -140,4 +141,20 @@ func (m *Models) authorize(ctx context.Context, tier core.Tier, estUSD float64, 
 // RecordVoice registra en usage lo que costó la voz de una llamada.
 func (m *Models) RecordVoice(ctx context.Context, model string, in, out int, costUSD float64) error {
 	return m.store.RecordUsage(ctx, core.Result{Tier: core.Voice, Model: model, InputTokens: in, OutputTokens: out, CostUSD: costUSD}, "")
+}
+
+// Embed pasa los embeddings por el gobernador (como el modelo barato) y registra su costo.
+func (m *Models) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	if m.Embedder == nil {
+		return nil, errors.New("sin modelo de embeddings")
+	}
+	if err := m.authorize(ctx, core.Cheap, -1, false); err != nil {
+		return nil, err
+	}
+	vecs, r, err := m.Embedder.Embed(ctx, texts)
+	if err != nil {
+		return nil, err
+	}
+	_ = m.store.RecordUsage(ctx, r, "")
+	return vecs, nil
 }
