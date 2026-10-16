@@ -11,6 +11,7 @@ import (
 
 	"github.com/nawesan12/mano/worker/internal/agent"
 	"github.com/nawesan12/mano/worker/internal/core"
+	"github.com/nawesan12/mano/worker/internal/mercadopago"
 	"github.com/nawesan12/mano/worker/internal/store"
 	"github.com/nawesan12/mano/worker/internal/stt"
 )
@@ -48,9 +49,12 @@ func ParseCommand(text string) (cmd, args string, ok bool) {
 // DecisionRe es el contrato de los botones de aprobación: ap:<uuid>:ok|no|ig
 var DecisionRe = regexp.MustCompile(`^ap:([0-9a-f-]{36}):(ok|no|ig)$`)
 
+// chargeRe: "Pérez 150.000 factura 123" → quién, monto, concepto
+var chargeRe = regexp.MustCompile(`^(.+?)\s+\$?(\d[\d.,]*[kK]?)\s*(.*)$`)
+
 var factRe = regexp.MustCompile(`(?s)^([^:]{1,60}):\s*(.+)$`)
 
-const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /llamame /silencio 21-8 /llamadas 3. O escribime normal."
+const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /llamame /silencio 21-8 /llamadas 3. O escribime normal."
 
 // HandleText atiende un mensaje de texto del dueño: comandos primero (gratis), después el agente.
 func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
@@ -131,6 +135,40 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			return
 		}
 		_ = ch.ApprovalCard(ctx, *ap)
+	case "cobrar":
+		m := chargeRe.FindStringSubmatch(args)
+		amount, ok := 0.0, m != nil
+		if ok {
+			amount, ok = mercadopago.ParseAmount(m[2])
+		}
+		if !ok {
+			say("Usalo así: /cobrar Pérez 150000 factura 123. Armo el link y se lo mando solo si lo aprobás.")
+			return
+		}
+		msg, ap := s.Agent.ProposeCharge(ctx, strings.TrimSpace(m[1]), amount, m[3])
+		if ap == nil {
+			say(msg)
+			return
+		}
+		_ = ch.ApprovalCard(ctx, *ap)
+	case "devolver":
+		f := strings.Fields(args)
+		if len(f) == 0 {
+			say("Usalo así: /devolver <número de pago> [monto]. Sin monto, devuelvo el total.")
+			return
+		}
+		amount := 0.0
+		if len(f) > 1 {
+			amount, _ = mercadopago.ParseAmount(f[1])
+		}
+		msg, ap := s.Agent.ProposeRefund(ctx, f[0], amount)
+		if ap == nil {
+			say(msg)
+			return
+		}
+		_ = ch.ApprovalCard(ctx, *ap)
+	case "cobros", "saldo", "movimientos":
+		say(s.Agent.Movements(ctx))
 	case "llamame":
 		if s.Calls == nil {
 			say("Las llamadas no están activadas. Configurá la voz en el .env (VOICE_ENABLED).")

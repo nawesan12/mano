@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/nawesan12/mano/worker/internal/core"
+	"github.com/nawesan12/mano/worker/internal/store"
+	"github.com/nawesan12/mano/worker/internal/testutil"
 )
 
 func sign(secret, manifest string) string {
@@ -112,5 +114,39 @@ func TestWebhookFetchesPayment(t *testing.T) {
 	}
 	if len(s.evs) != 1 || s.evs[0].Kind != "payment.approved" || *s.evs[0].Amount != 900000 {
 		t.Fatalf("evento: %+v", s.evs)
+	}
+}
+
+func TestParseAmount(t *testing.T) {
+	for in, want := range map[string]float64{"150000": 150000, "150.000": 150000, "$150.000,50": 150000.5, "150k": 150000} {
+		if got, ok := ParseAmount(in); !ok || got != want {
+			t.Errorf("%q: %v %v", in, got, ok)
+		}
+	}
+	if _, ok := ParseAmount("mucho"); ok {
+		t.Error("no es un monto")
+	}
+}
+
+// Un pago de un link de Mano marca el cobro y lleva la marca que lo sube a importante.
+func TestWebhookMarksChargePaid(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":556,"status":"approved","transaction_amount":150000,"currency_id":"ARS","external_reference":"mano-ap1"}`))
+	}))
+	defer api.Close()
+	db := testutil.NewFakeRest(map[string][]map[string]any{"mp_charges": {{"id": "mano-ap1", "tenant_id": testutil.Tenant, "status": "pending", "name": "Juan", "description": "factura 123", "amount": 150000}}})
+	rest := httptest.NewServer(db)
+	defer rest.Close()
+	c := NewClient("tok")
+	c.base = api.URL
+	s := &sink{}
+	wh := &Webhook{Client: c, Charges: store.New(rest.URL, "service", testutil.Tenant), Sink: s, TenantID: testutil.Tenant, Base: context.Background()}
+	wh.process("556")
+	wh.process("556") // reintento: no vuelve a marcar
+	if db.Rows("mp_charges")[0]["status"] != "paid" {
+		t.Fatal("el cobro queda pagado")
+	}
+	if len(s.evs) != 2 || !strings.Contains(core.Norm(s.evs[0].Body), "link de cobro de mano a juan") || strings.Contains(s.evs[1].Body, "link de cobro") {
+		t.Fatalf("eventos: %+v", s.evs)
 	}
 }
