@@ -116,7 +116,23 @@ Se cambia con `/regla`, por ejemplo: `/regla llamame si entra un pago de más de
 - **`/devolver 1234567890 [monto]`:** devolución total o parcial. Es **riesgo alto** y se aprueba **solo con el botón, nunca por voz**. Lleva clave de idempotencia: un doble toque no devuelve dos veces.
 - **`/cobros`:** lo cobrado en las últimas 24 h y en 7 días (bruto, neto, por liberar, devuelto), los últimos pagos y los links sin pagar. Mercado Pago no tiene un endpoint oficial de saldo; esto sale de la búsqueda de pagos.
 
-Correr `0009_mp_cobros.sql`. Si configurás `PUBLIC_URL`, cada link avisa directo a `/webhooks/mercadopago`.
+Correr `0009_mp_cobros.sql`.
+
+### Transferencias (apagadas por defecto)
+
+`/transferir proveedor@mail.com 50000 factura 88` o `/transferir <CBU/CVU> 50000 factura 88 titular Juan Pérez dni 12345678`.
+
+- **Riesgo alto.** Se aprueba **solo con el botón de la tarjeta**, nunca por voz.
+- **Topes duros** por operación y por día (`MP_PAYOUT_MAX_ARS`, `MP_PAYOUT_DAY_MAX_ARS`). Se vuelven a revisar al ejecutar.
+- **Destino:** el CBU se valida con sus dígitos verificadores, así que un número mal tipeado no pasa. Para CBU hacen falta el titular y el DNI. Los alias no están soportados por la API.
+- **Resultado:** es asíncrono. Mano te avisa cuando se acredita o si falla.
+- **Seguridad:** cada pedido va firmado con Ed25519 y lleva idempotencia (`mano-payout-<aprobación>`). El aviso de Mercado Pago no viene firmado, así que solo dispara una consulta a la API.
+
+Para activarlas:
+1. Generá la clave con `openssl genpkey -algorithm ed25519 -out mp_payouts.pem` y sacá la pública con `openssl pkey -in mp_payouts.pem -pubout`.
+2. Pedile a Mercado Pago (equipo de Integraciones) que habilite Payouts para tu cuenta y registre la clave pública. Sin eso la API responde 403 y Mano te lo dice.
+3. Configurá `MP_PAYOUTS_ENABLED=true` y `MP_PAYOUTS_KEY_FILE`, y corré `0010_mp_transferencias.sql`.
+4. Para probar antes de producción: credenciales de prueba con `MP_PAYOUTS_TEST=true`. Si configurás `PUBLIC_URL`, cada link avisa directo a `/webhooks/mercadopago`.
 
 Puesta en marcha: en Mercado Pago, Tus integraciones → tu app → Webhooks. URL `https://TU-WORKER/webhooks/mercadopago`, evento **Pagos**. Copiá la clave secreta a `MP_WEBHOOK_SECRET` y el access token de producción a `MP_ACCESS_TOKEN`. La firma `x-signature` se valida siempre y los pagos se consultan a la API, nunca se confía en el cuerpo del webhook.
 
@@ -199,6 +215,7 @@ docker run -d --restart=always --env-file .env --network host mano-worker   # ho
 | `/cobrar Quién monto concepto` | Arma un link de Mercado Pago y se lo manda al cliente, si lo aprobás |
 | `/cobros` | Lo cobrado en 24 h y 7 días, y los links sin pagar |
 | `/devolver pago [monto]` | Devolución; solo con el botón, nunca por voz |
+| `/transferir destino monto motivo` | Transferencia; topes duros, solo con el botón (apagada por defecto) |
 | `/silencio 21-8` | Horario en que no te llama (sin argumento, muestra la configuración) |
 | `/llamadas 3` | Máximo de llamadas por día; `off` / `on` para apagarlas o prenderlas |
 

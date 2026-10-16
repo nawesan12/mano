@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -53,4 +54,58 @@ func (s *Store) SetChargeStatus(ctx context.Context, id, status string) error {
 
 func (s *Store) MarkChargeReminded(ctx context.Context, id string, at time.Time) error {
 	return s.do(ctx, http.MethodPatch, "mp_charges", s.q("id", "eq."+id), map[string]any{"reminded_at": at.UTC().Format(time.RFC3339)}, "", nil)
+}
+
+// Payout es una transferencia saliente aprobada por el dueño.
+type Payout struct {
+	ID          string  `json:"id"` // = external_reference / idempotencia: mano-payout-<aprobación>
+	PayoutID    string  `json:"payout_id"`
+	Destination string  `json:"destination"`
+	Amount      float64 `json:"amount"`
+	Reason      string  `json:"reason"`
+	Status      string  `json:"status"`
+}
+
+func (s *Store) InsertPayout(ctx context.Context, p Payout) error {
+	return s.do(ctx, http.MethodPost, "mp_payouts", nil, map[string]any{"id": p.ID, "tenant_id": s.tenant, "payout_id": nullable(p.PayoutID),
+		"destination": p.Destination, "amount": p.Amount, "reason": p.Reason, "status": p.Status}, "", nil)
+}
+
+func (s *Store) SetPayoutStatus(ctx context.Context, id, status string) error {
+	return s.do(ctx, http.MethodPatch, "mp_payouts", s.q("id", "eq."+id), map[string]any{"status": status, "updated_at": time.Now().UTC().Format(time.RFC3339)}, "", nil)
+}
+
+// OpenPayouts son las que todavía no tienen resultado final.
+func (s *Store) OpenPayouts(ctx context.Context) ([]Payout, error) {
+	var out []Payout
+	return out, s.do(ctx, http.MethodGet, "mp_payouts", s.q("final", "is.false", "select", "id,payout_id,destination,amount,reason,status"), nil, "", &out)
+}
+
+func (s *Store) ClosePayout(ctx context.Context, id, status string) error {
+	return s.do(ctx, http.MethodPatch, "mp_payouts", s.q("id", "eq."+id), map[string]any{"status": status, "final": true, "updated_at": time.Now().UTC().Format(time.RFC3339)}, "", nil)
+}
+
+// PayoutsToday suma lo transferido hoy (salvo lo que falló): es lo que cuenta para el tope diario.
+func (s *Store) PayoutsToday(ctx context.Context, loc *time.Location) (float64, error) {
+	now := time.Now().In(loc)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	var rows []struct {
+		Amount    float64   `json:"amount"`
+		Status    string    `json:"status"`
+		CreatedAt time.Time `json:"created_at"`
+	}
+	if err := s.do(ctx, http.MethodGet, "mp_payouts", s.q("select", "amount,status,created_at", "created_at", "gte."+start.UTC().Format(time.RFC3339)), nil, "", &rows); err != nil {
+		return 0, err
+	}
+	total := 0.0
+	for _, r := range rows {
+		if !r.CreatedAt.IsZero() && r.CreatedAt.Before(start) {
+			continue
+		}
+		if r.Status == "error" || r.Status == "canceled" || strings.HasPrefix(r.Status, "rejected") {
+			continue
+		}
+		total += r.Amount
+	}
+	return total, nil
 }

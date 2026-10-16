@@ -49,12 +49,40 @@ func ParseCommand(text string) (cmd, args string, ok bool) {
 // DecisionRe es el contrato de los botones de aprobación: ap:<uuid>:ok|no|ig
 var DecisionRe = regexp.MustCompile(`^ap:([0-9a-f-]{36}):(ok|no|ig)$`)
 
+var holderRe = regexp.MustCompile(`(?i)\s+titular\s+(.+?)\s+dni\s+(\d[\d.]{6,10})\s*$`)
+
+// ParseTransfer: "<mail o CBU> <monto> <motivo> [titular Nombre Apellido dni 12345678]".
+func ParseTransfer(args string) (mercadopago.Destination, float64, string, string) {
+	const usage = "Usalo así: /transferir proveedor@mail.com 50000 factura 88, o /transferir <CBU> 50000 factura 88 titular Juan Pérez dni 12345678"
+	var d mercadopago.Destination
+	if m := holderRe.FindStringSubmatchIndex(args); m != nil {
+		d.Holder = strings.TrimSpace(args[m[2]:m[3]])
+		d.DNI = strings.ReplaceAll(args[m[4]:m[5]], ".", "")
+		args = args[:m[0]]
+	}
+	f := strings.Fields(args)
+	if len(f) < 3 {
+		return d, 0, "", usage
+	}
+	amount, ok := mercadopago.ParseAmount(f[1])
+	if !ok {
+		return d, 0, "", usage
+	}
+	dest := strings.ReplaceAll(f[0], "-", "")
+	if strings.Contains(dest, "@") {
+		d.Email = dest
+	} else {
+		d.CBU = dest
+	}
+	return d, amount, strings.Join(f[2:], " "), ""
+}
+
 // chargeRe: "Pérez 150.000 factura 123" → quién, monto, concepto
 var chargeRe = regexp.MustCompile(`^(.+?)\s+\$?(\d[\d.,]*[kK]?)\s*(.*)$`)
 
 var factRe = regexp.MustCompile(`(?s)^([^:]{1,60}):\s*(.+)$`)
 
-const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /llamame /silencio 21-8 /llamadas 3. O escribime normal."
+const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /llamame /silencio 21-8 /llamadas 3. O escribime normal."
 
 // HandleText atiende un mensaje de texto del dueño: comandos primero (gratis), después el agente.
 func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
@@ -162,6 +190,18 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			amount, _ = mercadopago.ParseAmount(f[1])
 		}
 		msg, ap := s.Agent.ProposeRefund(ctx, f[0], amount)
+		if ap == nil {
+			say(msg)
+			return
+		}
+		_ = ch.ApprovalCard(ctx, *ap)
+	case "transferir":
+		d, amount, reason, problem := ParseTransfer(args)
+		if problem != "" {
+			say(problem)
+			return
+		}
+		msg, ap := s.Agent.ProposePayout(ctx, d, amount, reason)
 		if ap == nil {
 			say(msg)
 			return
