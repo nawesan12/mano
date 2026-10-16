@@ -72,32 +72,8 @@ func (d Destination) String() string {
 
 var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
-// ValidCBU comprueba los dos dígitos verificadores del CBU/CVU (22 dígitos). Un dígito mal tipeado no pasa.
-func ValidCBU(cbu string) bool {
-	if len(cbu) != 22 {
-		return false
-	}
-	d := make([]int, 22)
-	for i, r := range cbu {
-		if r < '0' || r > '9' {
-			return false
-		}
-		d[i] = int(r - '0')
-	}
-	check := func(digits []int, weights []int) int {
-		sum := 0
-		for i, v := range digits {
-			sum += v * weights[i%len(weights)]
-		}
-		return (10 - sum%10) % 10
-	}
-	// bloque 1: entidad (3) + sucursal (4), verificador en la posición 8
-	if check(d[0:7], []int{7, 1, 3, 9, 7, 1, 3}) != d[7] {
-		return false
-	}
-	// bloque 2: cuenta (13), verificador en la posición 22
-	return check(d[8:21], []int{3, 9, 7, 1}) == d[21]
-}
+// ValidCBU comprueba los dígitos verificadores del CBU/CVU (22 dígitos). Un dígito mal tipeado no pasa.
+func ValidCBU(cbu string) bool { return core.ValidCBU(cbu) }
 
 func (d Destination) Validate() error {
 	switch {

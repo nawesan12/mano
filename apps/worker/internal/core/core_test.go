@@ -245,3 +245,19 @@ func TestParseQuiet(t *testing.T) {
 		t.Error("25 no es una hora")
 	}
 }
+
+func TestExtractAccounts(t *testing.T) {
+	// CBU de ejemplo con verificadores correctos
+	good := "2850590940090418135201"
+	if !ValidCBU(good) {
+		t.Fatal("el CBU de ejemplo tiene que ser válido")
+	}
+	text := "Nuevos datos: CBU " + good[:4] + " " + good[4:8] + "-" + good[8:] + ". Alias: CORRALON.NORTE.PAGOS. Factura 00012345678901234567890 (no es CBU)."
+	got := ExtractAccounts(text)
+	if len(got) != 2 || got[0] != "cbu:"+good || got[1] != "alias:corralon.norte.pagos" {
+		t.Fatalf("%v", got)
+	}
+	if MaskAccount(got[0]) != "CBU …5201" {
+		t.Fatal(MaskAccount(got[0]))
+	}
+}

@@ -161,6 +161,16 @@ Puesta en marcha:
 
 El refresh token es de un solo uso: Mano guarda el nuevo en cada renovación. Si se pierde (por ejemplo, borrando `ml_auth`), hay que volver a autorizar la app.
 
+## Antifraude: cuentas bancarias
+
+La estafa más común a PyMEs es el mail del "proveedor" con un CBU nuevo. Mano recuerda qué CBU/CVU o alias usó cada remitente (por mail o teléfono, nunca por el nombre, que se falsifica fácil):
+
+- **La primera vez** queda guardada como de confianza.
+- **Si después aparece una distinta**, el mensaje pasa a **crítico** aunque el texto no diga "nuevo CBU": te llama y te muestra la cuenta de antes y la nueva ("CBU …0125; antes CBU …5201").
+- **Para que la nueva pase a ser de confianza** hay una tarjeta aparte, de riesgo alto, que se aprueba **solo con el botón**. Aprobala solo si lo confirmaste llamando al número de siempre.
+
+Los CBU se reconocen por sus dígitos verificadores, así que un número de factura no se confunde. Todo sin IA. Correr `0012_antifraude.sql`.
+
 ## Cómo te avisa
 
 | Urgencia | Ejemplo | Cómo te llega |

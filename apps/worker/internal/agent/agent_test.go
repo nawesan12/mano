@@ -557,3 +557,54 @@ func TestRouteOnlySpendsOnActions(t *testing.T) {
 		t.Fatalf("%q %v", c, ok)
 	}
 }
+
+// Un proveedor siempre usó un CBU; si aparece otro, es crítico, llama y la cuenta nueva necesita el botón.
+func TestFraudNewAccountIsCritical(t *testing.T) {
+	ctx := context.Background()
+	a, db, _, _, n, _ := setup(t)
+	fc := &fakeCaller{}
+	a.SetCaller(fc)
+	a.spawn = func(f func()) { f() }
+	const old, other = "2850590940090418135201", "0170099222000006789011"
+	if !core.ValidCBU(other) {
+		t.Fatal("CBU de prueba inválido")
+	}
+	_ = a.OnEvent(ctx, mail("f1", "Corralón <pagos@corralon.com>", "Te paso el CBU "+old+" para la factura"))
+	if len(fc.reqs) != 0 {
+		t.Fatal("la primera cuenta se confía")
+	}
+	_ = a.OnEvent(ctx, mail("f2", "Corralón <pagos@corralon.com>", "Pagá la factura al CBU "+old))
+	if len(fc.reqs) != 0 {
+		t.Fatal("la misma cuenta no alarma")
+	}
+	_ = a.OnEvent(ctx, mail("f3", "Corralón <pagos@corralon.com>", "Por favor transferí a este CBU "+other))
+	if len(fc.reqs) != 1 || fc.reqs[0].When.Urgency != core.Critical {
+		t.Fatalf("cuenta distinta = crítico y llamada: %+v", fc.reqs)
+	}
+	if !strings.Contains(n.sent[len(n.sent)-1], "CBU …9011; antes CBU …5201") {
+		t.Fatalf("aviso: %v", n.sent)
+	}
+	var trust store.Approval
+	for _, r := range db.Rows("approvals") {
+		if r["area"] == "Antifraude" {
+			trust.ID = r["id"].(string)
+		}
+	}
+	if trust.ID == "" {
+		t.Fatal("falta la tarjeta para confiar en la cuenta nueva")
+	}
+	if got := a.OnDecision(ctx, trust.ID, Approve, "voz:x"); !strings.Contains(got, "botón") {
+		t.Fatal("confiar en una cuenta no se aprueba por voz")
+	}
+	before := len(db.Rows("approvals"))
+	_ = a.OnEvent(ctx, mail("f4", "Corralón <pagos@corralon.com>", "Recordá: CBU "+other))
+	if len(db.Rows("approvals")) > before+1 {
+		t.Fatal("la tarjeta de confianza sale una sola vez")
+	}
+	_ = a.OnDecision(ctx, trust.ID, Approve, "telegram")
+	calls := len(fc.reqs)
+	_ = a.OnEvent(ctx, mail("f5", "Corralón <pagos@corralon.com>", "CBU "+other))
+	if len(fc.reqs) != calls {
+		t.Fatal("confirmada, ya no alarma")
+	}
+}
