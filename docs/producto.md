@@ -165,7 +165,10 @@ Canales (WhatsApp, Telegram, teléfono, Slack/iMessage, panel) → gateway de me
 ### BYOK y modo programador
 
 - El cliente conecta su API key (Anthropic, OpenAI, Google, OpenRouter) o un modelo local (Ollama); paga la IA directo al proveedor.
-- Suscripciones de consumo (Claude Pro/Max, ChatGPT Plus) no sirven como motor de una app de terceros.
+- Suscripciones de consumo como motor (revisado el 15/10/2026):
+  - **Claude Pro/Max:** no. Anthropic restringe el login de suscripción a Claude Code y sus apps propias.
+  - **Gemini:** no. La suscripción no paga llamadas de terceros, y el atajo vía Gemini CLI está prohibido.
+  - **ChatGPT Plus/Pro:** "Sign in with ChatGPT" con uso del plan existe desde el 29/9/2026, pero para apps comerciales es una prueba limitada con lista de espera. Exige Responses API con `stream: true` y `store: false`, y una guía de terceros dice que lo que corre en segundo plano o programado va con API key (no lo vimos en la doc oficial). Plan: anotarse en la lista para la Fase 1 y usarlo solo cuando el dueño le habla a Mano; el triage, los resúmenes y la voz siguen con API key.
 - Keys cifradas por cliente; límite de gasto.
 - **Modo programador:** conecta GitHub, corre un agente de código en sandbox, abre PRs; nunca hace merge sin aprobación.
 - Ruteo: DeepSeek Flash (~0,15–0,30 USD/M entrada, 0,60–1,20 salida, mitad fuera de hora pico; verificar) o Haiku para triage; Sonnet/Opus para decidir, redactar y programar.
