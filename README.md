@@ -9,7 +9,7 @@ Tu mano derecha que nunca duerme. **Fase 0: MVP personal.** Un agente que vigila
 | Worker (agente, bot, webhooks) | **Go 1.24**, solo librería estándar: un binario sin dependencias |
 | Panel | Next.js 15 + React 19 |
 | Datos | Supabase (Postgres + pgvector + RLS); el worker usa la API REST |
-| IA | Anthropic o cualquier API compatible con OpenAI (DeepSeek, OpenRouter, Ollama). BYOK listo |
+| IA | Claude, OpenAI, Gemini, DeepSeek, OpenRouter, Groq, Mistral, xAI, Together, Fireworks, Cerebras, Ollama o cualquier API compatible con OpenAI. Con el nombre del proveedor alcanza; respaldo automático si uno falla. BYOK listo |
 | Canales | Telegram (Bot API), WhatsApp Cloud API, Gmail (API REST + Pub/Sub) |
 | Voz | WhatsApp Calling API (WebRTC) + voz en tiempo real (OpenAI Realtime). El worker hace de puente con [pion/webrtc](https://github.com/pion/webrtc), la única dependencia externa |
 
@@ -286,6 +286,14 @@ cd apps/worker && make build        # bin/mano, binario estático para Linux
 docker build -t mano-worker apps/worker
 docker run -d --restart=always --env-file .env --network host mano-worker   # host: las llamadas usan UDP
 ```
+
+## Modelos
+
+Cada nivel (barato para clasificar y resumir, top para redactar y decidir) puede ser de un proveedor distinto: `CHEAP_PROVIDER=gemini`, `TOP_PROVIDER=anthropic`. Con el nombre alcanza, la URL se completa sola. Para un proveedor que no está en la lista, usá `openai-compatible` con su `BASE_URL`.
+
+**Respaldo:** con `FALLBACK_*` configurado, si el proveedor de un nivel está caído, saturado, sin saldo o rechaza la key, Mano reintenta con ese modelo. Un pedido mal armado (400) no se reintenta. El costo se registra según el modelo que respondió, así que el gobernador mide lo real. `make check` le manda un pedido mínimo a cada modelo para validar key, URL y nombre.
+
+Los precios (`*_PRICE_IN/OUT`) siempre se cargan a mano con la tarifa vigente: sin eso el gobernador no puede controlar el gasto.
 
 ## Panel
 

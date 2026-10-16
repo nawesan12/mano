@@ -85,6 +85,14 @@ func main() {
 	st := store.New(cfg.SupabaseURL, cfg.SupabaseKey, cfg.TenantID)
 	cheap := core.NewLLM(core.ModelConfig{Tier: core.Cheap, Provider: cfg.CheapProvider, Model: cfg.CheapModel, APIKey: cfg.CheapKey, BaseURL: cfg.CheapBaseURL, PriceIn: cfg.CheapPriceIn, PriceOut: cfg.CheapPriceOut})
 	top := core.NewLLM(core.ModelConfig{Tier: core.Top, Provider: cfg.TopProvider, Model: cfg.TopModel, APIKey: cfg.TopKey, BaseURL: cfg.TopBaseURL, PriceIn: cfg.TopPriceIn, PriceOut: cfg.TopPriceOut})
+	if cfg.FallbackProvider != "" {
+		// el mismo respaldo para los dos niveles: mejor un modelo distinto que quedarse sin IA
+		fb := func(t core.Tier) core.LLM {
+			return core.NewLLM(core.ModelConfig{Tier: t, Provider: cfg.FallbackProvider, Model: cfg.FallbackModel, APIKey: cfg.FallbackKey,
+				BaseURL: cfg.FallbackBaseURL, PriceIn: cfg.FallbackPriceIn, PriceOut: cfg.FallbackPriceOut})
+		}
+		cheap, top = core.WithFallback(cheap, fb(core.Cheap)), core.WithFallback(top, fb(core.Top))
+	}
 	models := agent.NewModels(cheap, top, st, core.Caps{DayUSD: cfg.CapDayUSD, MonthUSD: cfg.CapMonthUSD})
 	transcriber := stt.New(cfg.STTBaseURL, cfg.STTKey, cfg.STTModel)
 	if speaker := tts.New(cfg.TTSBaseURL, cfg.TTSKey, cfg.TTSModel, cfg.TTSVoice, cfg.TTSPricePerMChars); speaker != nil {

@@ -15,7 +15,7 @@ import (
 
 type ModelConfig struct {
 	Tier     Tier
-	Provider string // anthropic | openai-compatible
+	Provider string // anthropic, openai, gemini, deepseek… (ver Providers)
 	Model    string
 	APIKey   string
 	BaseURL  string
@@ -30,14 +30,15 @@ func CostOf(c ModelConfig, in, out float64) float64 {
 var httpClient = &http.Client{Timeout: 90 * time.Second}
 
 func NewLLM(c ModelConfig) LLM {
-	if c.Provider == "anthropic" {
-		if c.BaseURL == "" {
-			c.BaseURL = "https://api.anthropic.com"
-		}
-		return &anthropic{c}
+	if c.BaseURL == "" {
+		c.BaseURL = Providers[c.Provider]
 	}
 	if c.BaseURL == "" {
-		c.BaseURL = "https://api.openai.com/v1"
+		c.BaseURL = Providers["openai"]
+	}
+	c.BaseURL = strings.TrimRight(c.BaseURL, "/")
+	if c.Provider == "anthropic" {
+		return &anthropic{c}
 	}
 	return &openaiCompat{c}
 }
@@ -62,7 +63,7 @@ func postJSON(ctx context.Context, url string, headers map[string]string, body, 
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if res.StatusCode >= 300 {
-		return fmt.Errorf("%s respondió %d: %s", url, res.StatusCode, truncate(string(raw), 300))
+		return &HTTPError{Status: res.StatusCode, Msg: fmt.Sprintf("%s respondió %d: %s", url, res.StatusCode, truncate(string(raw), 300))}
 	}
 	return json.Unmarshal(raw, out)
 }
