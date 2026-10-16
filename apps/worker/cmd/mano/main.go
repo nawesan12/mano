@@ -253,6 +253,7 @@ func main() {
 			Address: cfg.PublicURL + "/webhooks/calendar", Base: ctx,
 		}
 		srvCfg.Hooks["/webhooks/calendar"] = cal
+		ag.SetScheduler(cal.Client)
 	}
 	if cfg.PanelToken != "" {
 		srvCfg.Hooks["GET /api/status"] = &server.StatusAPI{Token: cfg.PanelToken, Status: map[string]bool{

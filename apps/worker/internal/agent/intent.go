@@ -10,7 +10,7 @@ import (
 )
 
 // actionHint: solo si el texto suena a pedido de acción se gasta el clasificador. Charla normal, gratis.
-var actionHint = regexp.MustCompile(`\b(viaj|vacacion|ausent|volvi|cobr|llam|transfer|devol|reembols|record|acorda|anota|avisa|avises|silencio|pagale|pasale|mandale|regla|envio|pendiente|resumen|gasto|ahorr|semana|diagnost|cliente|ficha|sabes de|nota|factur|tengo un|me dedico|mi negocio|rubro|dijo|mando|busca|acordas|cuando vence|que paso con)`)
+var actionHint = regexp.MustCompile(`\b(viaj|vacacion|ausent|volvi|cobr|llam|transfer|devol|reembols|record|acorda|anota|avisa|avises|silencio|pagale|pasale|mandale|regla|envio|pendiente|resumen|gasto|ahorr|semana|diagnost|cliente|ficha|sabes de|nota|factur|tengo un|me dedico|mi negocio|rubro|dijo|mando|busca|acordas|cuando vence|que paso con|agend|reunion|turno para|libre|hueco)`)
 
 const intentSystem = `Traducís un pedido del dueño de un negocio a UNA acción de Mano en JSON. Si no es un pedido de acción, {"accion":"ninguna"}.
 Acciones (usá solo estos campos):
@@ -26,6 +26,8 @@ Acciones (usá solo estos campos):
 - {"accion":"volvi"}  (terminó la ausencia)
 - {"accion":"facturar","monto":150000,"quien":"cliente o vacío","concepto":"…","dni":"si lo dice"}  (hacer una factura en ARCA)
 - {"accion":"negocio","nombre":"cómo se llama, si lo dice","rubro":"a qué se dedica"}  (presenta su negocio: "tengo una inmobiliaria que se llama Costa Azul")
+- {"accion":"agendar","cuando":"el jueves a las 15","titulo":"…","con":"nombre si lo dice"}  (agendar una reunión o turno)
+- {"accion":"libre","dia":"el jueves | mañana | hoy"}  (huecos libres en la agenda)
 - {"accion":"buscar","que":"la pregunta tal cual"}  (recordar algo que llegó: "¿qué me dijo Pérez del contrato?", "¿cuándo vence lo de Gómez?")
 - {"accion":"cliente","quien":"…"}  (ver la ficha de un cliente: "¿qué sabés de Pérez?")
 - {"accion":"nota","quien":"…","texto":"…"}  (anotar algo de un cliente: "anotá que Pérez paga a 60 días")
@@ -52,6 +54,10 @@ type intent struct {
 	Mensaje  string  `json:"mensaje"`
 	Nombre   string  `json:"nombre"`
 	Rubro    string  `json:"rubro"`
+	Cuando   string  `json:"cuando"`
+	Titulo   string  `json:"titulo"`
+	Con      string  `json:"con"`
+	Dia      string  `json:"dia"`
 }
 
 // field limpia lo que devuelve el modelo antes de armar un comando: sin barras, saltos ni largos raros.
@@ -123,6 +129,21 @@ func (i intent) command(original string) (string, bool) {
 		return c, true
 	case "volvi":
 		return "/volvi", true
+	case "agendar":
+		when := strings.ReplaceAll(field(i.Cuando), ":", ".")
+		if when == "" {
+			return "", false
+		}
+		what := strings.ReplaceAll(field(i.Titulo), ":", " ")
+		if what == "" {
+			what = "Reunión"
+		}
+		if c := field(i.Con); c != "" && !strings.Contains(core.Norm(what), core.Norm(c)) {
+			what += " con " + c
+		}
+		return "/agendar " + when + ": " + what, true
+	case "libre":
+		return "/libre " + field(i.Dia), true
 	case "buscar":
 		if q := field(original); q != "" {
 			return "/buscar " + q, true

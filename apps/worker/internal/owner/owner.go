@@ -103,7 +103,7 @@ var chargeRe = regexp.MustCompile(`^(.+?)\s+\$?(\d[\d.,]*[kK]?)\s*(.*)$`)
 
 var factRe = regexp.MustCompile(`(?s)^([^:]{1,60}):\s*(.+)$`)
 
-const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /ausente hasta el lunes /volvi /diagnostico /cliente Quién /nota Quién: dato /facturar monto cliente: concepto /anular factura /buscar pregunta /llamame /silencio 21-8 /llamadas 3. O escribime normal."
+const help = "Comandos: /resumen /pendientes /gasto /recordar Tema: dato /olvidar Tema /regla (en tus palabras) /llamar Quién: para qué /cobrar Quién monto concepto /cobros /devolver pago /transferir destino monto motivo /envios /ausente hasta el lunes /volvi /diagnostico /cliente Quién /nota Quién: dato /facturar monto cliente: concepto /anular factura /buscar pregunta /agendar cuándo: qué /libre día /llamame /silencio 21-8 /llamadas 3. O escribime normal."
 
 // HandleText atiende un mensaje de texto del dueño: comandos primero (gratis), después el agente.
 func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
@@ -244,6 +244,25 @@ func (s *Service) HandleText(ctx context.Context, ch Channel, text string) {
 			return
 		}
 		msg, ap := s.Agent.ProposePayout(ctx, d, amount, reason)
+		if ap == nil {
+			say(msg)
+			return
+		}
+		_ = ch.ApprovalCard(ctx, *ap)
+	case "libre":
+		say(s.Agent.Free(ctx, args))
+	case "agendar":
+		// "/agendar el jueves a las 15: reunión con Pérez"
+		when, what, _ := strings.Cut(args, ":")
+		if strings.TrimSpace(when) == "" {
+			say("Usalo así: /agendar el jueves a las 15: reunión con Pérez")
+			return
+		}
+		with := ""
+		if i := strings.Index(core.Norm(what), " con "); i >= 0 {
+			with = strings.TrimSpace(what[i+5:])
+		}
+		msg, ap := s.Agent.ProposeMeeting(ctx, when, 60, what, with)
 		if ap == nil {
 			say(msg)
 			return

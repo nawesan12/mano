@@ -150,3 +150,40 @@ func TestSyncFlow(t *testing.T) {
 		t.Fatal("token incorrecto")
 	}
 }
+
+func TestCreateEvent(t *testing.T) {
+	var got map[string]any
+	var query string
+	forbid := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			_, _ = w.Write([]byte(`{"access_token":"at","expires_in":3600}`))
+		case "/calendars/primary/events":
+			if forbid {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			query = r.URL.RawQuery
+			_ = json.NewDecoder(r.Body).Decode(&got)
+			_, _ = w.Write([]byte(`{"id":"ev1","htmlLink":"https://calendar.google.com/ev1"}`))
+		}
+	}))
+	defer srv.Close()
+	auth := google.NewAuth("id", "s", "r")
+	auth.TokenURL = srv.URL + "/token"
+	c := NewClient(auth)
+	c.base = srv.URL
+	start := time.Date(2026, 10, 22, 15, 0, 0, 0, ar)
+	link, err := c.CreateEvent(context.Background(), "Firma", start, start.Add(time.Hour), []string{"juan@mail.com"}, "x")
+	if err != nil || link != "https://calendar.google.com/ev1" || query != "sendUpdates=all" {
+		t.Fatal(link, err, query)
+	}
+	if got["start"].(map[string]any)["dateTime"] != "2026-10-22T15:00:00-03:00" || got["attendees"].([]any)[0].(map[string]any)["email"] != "juan@mail.com" {
+		t.Fatal(got)
+	}
+	forbid = true
+	if _, err := c.CreateEvent(context.Background(), "x", start, start, nil, ""); err == nil || !strings.Contains(err.Error(), "calendar.events") {
+		t.Fatal("sin permiso se explica:", err)
+	}
+}

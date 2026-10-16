@@ -69,6 +69,7 @@ type Agent struct {
 	pay            Payments
 	payNotify      string
 	archiver       Archiver
+	scheduler      Scheduler
 	invoicer       Invoicer
 	invoiceCfg     InvoiceConfig
 	transfers      Transfers
@@ -414,6 +415,8 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		return a.issueInvoice(ctx, *ap, by)
 	case "arca.credit":
 		return a.issueCredit(ctx, *ap, by)
+	case "calendar.create":
+		return a.createMeeting(ctx, *ap, by)
 	case "away.reply":
 		return a.approveAwayReply(ctx, *ap, by)
 	default:
