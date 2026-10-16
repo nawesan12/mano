@@ -1,4 +1,4 @@
-package telegram
+package owner
 
 import "testing"
 
@@ -8,7 +8,7 @@ func TestParseCommand(t *testing.T) {
 		ok            bool
 	}{
 		{"/recordar@ManoBot Tema: dato", "recordar", "Tema: dato", true},
-		{"/Resumen", "resumen", "", true},
+		{" /Resumen ", "resumen", "", true},
 		{"hola", "", "", false},
 	}
 	for _, c := range cases {
@@ -17,7 +17,7 @@ func TestParseCommand(t *testing.T) {
 			t.Errorf("%q → %q %q %v", c.in, cmd, args, ok)
 		}
 	}
-	if !callbackRe.MatchString("ap:00000001-0000-4000-8000-000000000000:ok") || callbackRe.MatchString("ap:x:ok") {
-		t.Fatal("callbackRe")
+	if !DecisionRe.MatchString("ap:00000001-0000-4000-8000-000000000000:ok") || DecisionRe.MatchString("ap:x:ok") {
+		t.Fatal("DecisionRe")
 	}
 }

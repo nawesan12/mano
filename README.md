@@ -10,7 +10,7 @@ Tu mano derecha que nunca duerme. **Fase 0: MVP personal.** Un agente que vigila
 | Panel | Next.js 15 + React 19 |
 | Datos | Supabase (Postgres + pgvector + RLS); el worker usa la API REST |
 | IA | Anthropic o cualquier API compatible con OpenAI (DeepSeek, OpenRouter, Ollama). BYOK listo |
-| Canales | Telegram (Bot API), Gmail (API REST + Pub/Sub) |
+| Canales | Telegram (Bot API), WhatsApp Cloud API, Gmail (API REST + Pub/Sub) |
 
 ## Cómo piensa
 
@@ -33,7 +33,10 @@ apps/worker/            Go
   internal/agent        agente: triage → borrador → aprobación → ejecución; resumen
   internal/store        Supabase vía PostgREST
   internal/gmail        Gmail REST + OAuth con refresh token
-  internal/telegram     Bot API, comandos y tarjetas de aprobación
+  internal/owner        comandos y atención al dueño, igual para Telegram y WhatsApp
+  internal/telegram     Bot API y tarjetas de aprobación
+  internal/whatsapp     Cloud API: webhook firmado, botones, plantillas, ventana de 24 h, costos
+  internal/stt          transcripción de audios (API compatible con OpenAI)
   internal/server       webhook de Gmail y /health
   internal/schedule     tareas diarias por hora local
 apps/web                panel Next.js (estado, pendientes, registro, gasto)
@@ -50,7 +53,26 @@ supabase                migración con RLS + seed
    - En Google Cloud: habilitá Gmail API y Pub/Sub, creá un OAuth client y sacá el refresh token del dueño (scopes `gmail.readonly` y `gmail.send`).
    - Creá un topic, dale permiso de publicación a `gmail-api-push@system.gserviceaccount.com` y una suscripción push a `https://TU-WORKER/webhooks/gmail?token=GMAIL_PUSH_TOKEN`.
    - El worker registra y renueva el watch solo; para probarlo a mano: `make watch`.
-6. Panel: `pnpm install && pnpm dev:web` → http://localhost:3000
+6. WhatsApp (opcional): ver la sección de abajo.
+7. Panel: `pnpm install && pnpm dev:web` → http://localhost:3000
+
+## WhatsApp
+
+Mano usa WhatsApp para dos cosas: hablar con vos (si `OWNER_CHANNEL=whatsapp`) y recibir mensajes de tus clientes.
+
+- **Clientes:** cada mensaje entra a la cascada como evento. Si importa, te avisa; si hay que responder, redacta y te deja la tarjeta para aprobar. En la Fase 0 **nunca le contesta solo a un cliente**.
+- **Vos:** escribís igual que en Telegram (texto, audios, `/resumen`, `/pendientes`…) y aprobás con botones.
+- **Ventana de 24 h:** WhatsApp solo deja escribir libre a quien te escribió en las últimas 24 h. Para avisarte fuera de esa ventana, Mano usa una plantilla; si no hay plantilla, el aviso sale por Telegram. A un cliente con la ventana cerrada no le responde.
+- **Costo:** desde el 1-oct-2026 Meta cobra cada mensaje saliente, también los de servicio. Por eso cada turno es un solo mensaje y cada envío queda en `wa_messages` con la categoría y el cargo que informa Meta. Para avisos internos Telegram es gratis.
+
+Puesta en marcha:
+
+1. En Meta for Developers: app de tipo Business con WhatsApp, número de producción y token permanente de usuario de sistema.
+2. Webhook: URL `https://TU-WORKER/webhooks/whatsapp`, token de verificación = `WA_VERIFY_TOKEN`, suscribirse a `messages`.
+3. Plantilla de aviso (categoría **Utility**, idioma `es_AR`), nombre `mano_aviso`, cuerpo:
+   `Aviso de Mano: {{1}}. Respondé este mensaje para ver el detalle.`
+   La variable no puede ir ni al principio ni al final del cuerpo. Mantenela seca y transaccional: si suena promocional, Meta la recategoriza como marketing y cuesta más.
+4. Correr `supabase/migrations/0002_whatsapp.sql`.
 
 ## En el VPS
 

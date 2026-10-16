@@ -30,6 +30,7 @@ type Server struct {
 	PushToken string
 	TenantID  string
 	Base      context.Context
+	WhatsApp  http.Handler // nil si WhatsApp no está conectado
 
 	gmailMu sync.Mutex // procesa los push de a uno: el historyId es secuencial
 }
@@ -38,9 +39,12 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"gmail":` + strconv.FormatBool(s.Gmail != nil) + `}`))
+		_, _ = w.Write([]byte(`{"ok":true,"gmail":` + strconv.FormatBool(s.Gmail != nil) + `,"whatsapp":` + strconv.FormatBool(s.WhatsApp != nil) + `}`))
 	})
 	mux.HandleFunc("POST /webhooks/gmail", s.gmailPush)
+	if s.WhatsApp != nil {
+		mux.Handle("/webhooks/whatsapp", s.WhatsApp)
+	}
 	return mux
 }
 

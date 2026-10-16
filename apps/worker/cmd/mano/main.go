@@ -1,4 +1,4 @@
-// Mano worker: webhooks, bot de Telegram, resumen diario y renovación del watch de Gmail.
+// Mano worker: webhooks (Gmail, WhatsApp), bot de Telegram, resumen diario y renovación del watch de Gmail.
 //
 //	go run ./cmd/mano               # arranca todo
 //	go run ./cmd/mano -gmail-watch  # registra el watch de Gmail y sale
@@ -21,10 +21,13 @@ import (
 	"github.com/nawesan12/mano/worker/internal/config"
 	"github.com/nawesan12/mano/worker/internal/core"
 	"github.com/nawesan12/mano/worker/internal/gmail"
+	"github.com/nawesan12/mano/worker/internal/owner"
 	"github.com/nawesan12/mano/worker/internal/schedule"
 	"github.com/nawesan12/mano/worker/internal/server"
 	"github.com/nawesan12/mano/worker/internal/store"
+	"github.com/nawesan12/mano/worker/internal/stt"
 	"github.com/nawesan12/mano/worker/internal/telegram"
+	"github.com/nawesan12/mano/worker/internal/whatsapp"
 )
 
 func main() {
@@ -63,9 +66,34 @@ func main() {
 	cheap := core.NewLLM(core.ModelConfig{Tier: core.Cheap, Provider: cfg.CheapProvider, Model: cfg.CheapModel, APIKey: cfg.CheapKey, BaseURL: cfg.CheapBaseURL, PriceIn: cfg.CheapPriceIn, PriceOut: cfg.CheapPriceOut})
 	top := core.NewLLM(core.ModelConfig{Tier: core.Top, Provider: cfg.TopProvider, Model: cfg.TopModel, APIKey: cfg.TopKey, BaseURL: cfg.TopBaseURL, PriceIn: cfg.TopPriceIn, PriceOut: cfg.TopPriceOut})
 	models := agent.NewModels(cheap, top, st, core.Caps{DayUSD: cfg.CapDayUSD, MonthUSD: cfg.CapMonthUSD})
+	transcriber := stt.New(cfg.STTBaseURL, cfg.STTKey, cfg.STTModel)
 
-	tg := telegram.NewClient(cfg.TelegramToken)
-	notifier := telegram.NewNotifier(tg, cfg.OwnerChatID)
+	// Canales hacia el dueño. El preferido primero; el otro como respaldo.
+	var tgClient *telegram.Client
+	var tgChan *telegram.Channel
+	var waClient *whatsapp.Client
+	var waChan *whatsapp.OwnerChannel
+	if cfg.TelegramEnabled() {
+		tgClient = telegram.NewClient(cfg.TelegramToken)
+		tgChan = telegram.NewChannel(tgClient, cfg.OwnerChatID)
+	}
+	if cfg.WhatsAppEnabled() {
+		waClient = whatsapp.NewClient(cfg.WAPhoneID, cfg.WAToken, cfg.WAAPIVersion, st)
+		waChan = whatsapp.NewOwnerChannel(waClient, cfg.WAOwnerPhone, cfg.WATemplateNotice, cfg.WATemplateLang)
+	}
+	var notifier owner.Fallback
+	add := func(c owner.Channel) {
+		if c != nil {
+			notifier = append(notifier, c)
+		}
+	}
+	if cfg.OwnerChannel == "whatsapp" {
+		add(chanOrNil(waChan))
+		add(chanOrNil(tgChan))
+	} else {
+		add(chanOrNil(tgChan))
+		add(chanOrNil(waChan))
+	}
 	models.OnHalt = func(reason string) { _ = notifier.Send(context.Background(), "Freno de gasto: "+reason) }
 
 	var mailer agent.Mailer
@@ -73,15 +101,24 @@ func main() {
 	if gm != nil {
 		mailer, source = gm, gm
 	}
-	ag := agent.New(st, models, notifier, mailer, cfg.Location)
-
-	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           (&server.Server{Gmail: source, Sink: ag, PushToken: cfg.GmailPushToken, TenantID: cfg.TenantID, Base: ctx}).Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
+	var waReplier agent.WhatsApper
+	if waClient != nil {
+		waReplier = waClient
 	}
+	ag := agent.New(st, models, notifier, mailer, waReplier, cfg.Location)
+	svc := &owner.Service{Agent: ag, Models: models, Store: st, STT: transcriber}
+
+	srvCfg := &server.Server{Gmail: source, Sink: ag, PushToken: cfg.GmailPushToken, TenantID: cfg.TenantID, Base: ctx}
+	if waClient != nil {
+		srvCfg.WhatsApp = &whatsapp.Webhook{
+			Client: waClient, Store: st, Owner: svc, OwnerChan: waChan, Sink: ag, STT: transcriber,
+			AppSecret: cfg.WAAppSecret, VerifyToken: cfg.WAVerifyToken, PhoneID: cfg.WAPhoneID,
+			OwnerPhone: cfg.WAOwnerPhone, TenantID: cfg.TenantID, Base: ctx,
+		}
+	}
+	srv := &http.Server{Addr: ":" + cfg.Port, Handler: srvCfg.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
-		slog.Info("webhooks escuchando", "port", cfg.Port, "gmail", gm != nil)
+		slog.Info("webhooks escuchando", "port", cfg.Port, "gmail", gm != nil, "whatsapp", waClient != nil)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("http", "err", err)
 			stop()
@@ -94,7 +131,9 @@ func main() {
 			slog.Error("resumen", "err", err)
 			return
 		}
-		_ = notifier.Send(c, text)
+		if err := notifier.Send(c, text); err != nil {
+			slog.Error("resumen: no pude avisar", "err", err)
+		}
 	})
 
 	if gm != nil && cfg.GmailTopic != "" {
@@ -109,11 +148,24 @@ func main() {
 		schedule.Daily(ctx, "gmail-watch", "03:00", cfg.Location, renew)
 	}
 
-	slog.Info("mano trabajando", "resumen", cfg.BriefAt, "tz", cfg.Location.String())
-	telegram.NewBot(tg, cfg.OwnerChatID, ag, models, st, notifier, telegram.STT{BaseURL: cfg.STTBaseURL, Key: cfg.STTKey, Model: cfg.STTModel}).Run(ctx)
+	slog.Info("mano trabajando", "canal", cfg.OwnerChannel, "resumen", cfg.BriefAt, "tz", cfg.Location.String())
+	if tgClient != nil {
+		telegram.NewBot(tgClient, tgChan, cfg.OwnerChatID, svc).Run(ctx)
+	} else {
+		<-ctx.Done()
+	}
 
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdown)
 	slog.Info("mano detenido")
+}
+
+// chanOrNil evita meter un puntero nil tipado dentro de la interfaz.
+func chanOrNil[T owner.Channel](c T) owner.Channel {
+	var zero T
+	if any(c) == any(zero) {
+		return nil
+	}
+	return c
 }

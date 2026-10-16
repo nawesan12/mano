@@ -16,6 +16,10 @@ type Config struct {
 
 	TelegramToken, OwnerChatID string
 
+	WAPhoneID, WAToken, WAAppSecret, WAVerifyToken, WAOwnerPhone string
+	WATemplateNotice, WATemplateLang, WAAPIVersion               string
+	OwnerChannel                                                 string // telegram | whatsapp
+
 	CheapProvider, CheapBaseURL, CheapKey, CheapModel string
 	CheapPriceIn, CheapPriceOut                       float64
 	TopProvider, TopBaseURL, TopKey, TopModel         string
@@ -31,6 +35,11 @@ type Config struct {
 	Port     string
 	Location *time.Location
 	BriefAt  string // "07:00"
+}
+
+func (c Config) TelegramEnabled() bool { return c.TelegramToken != "" }
+func (c Config) WhatsAppEnabled() bool {
+	return c.WAPhoneID != "" && c.WAToken != "" && c.WAAppSecret != ""
 }
 
 func (c Config) GmailEnabled() bool {
@@ -108,8 +117,18 @@ func Load() (Config, error) {
 		SupabaseURL:   strings.TrimRight(str("SUPABASE_URL", true), "/"),
 		SupabaseKey:   str("SUPABASE_SERVICE_ROLE_KEY", true),
 		TenantID:      str("MANO_TENANT_ID", true),
-		TelegramToken: str("TELEGRAM_BOT_TOKEN", true),
+		TelegramToken: str("TELEGRAM_BOT_TOKEN", false),
 		OwnerChatID:   str("TELEGRAM_OWNER_CHAT_ID", false),
+
+		WAPhoneID:        str("WA_PHONE_NUMBER_ID", false),
+		WAToken:          str("WA_ACCESS_TOKEN", false),
+		WAAppSecret:      str("WA_APP_SECRET", false),
+		WAVerifyToken:    str("WA_VERIFY_TOKEN", false),
+		WAOwnerPhone:     digits(os.Getenv("WA_OWNER_PHONE")),
+		WATemplateNotice: str("WA_TEMPLATE_NOTICE", false),
+		WATemplateLang:   def("WA_TEMPLATE_LANG", "es_AR"),
+		WAAPIVersion:     def("WA_API_VERSION", "v26.0"),
+		OwnerChannel:     def("OWNER_CHANNEL", "telegram"),
 
 		CheapProvider: provider("CHEAP_PROVIDER"),
 		CheapBaseURL:  str("CHEAP_BASE_URL", false),
@@ -153,6 +172,29 @@ func Load() (Config, error) {
 		loc = time.UTC
 	}
 	c.Location = loc
+	if !c.TelegramEnabled() && !c.WhatsAppEnabled() {
+		missing = append(missing, "canal del dueño: configurá TELEGRAM_BOT_TOKEN o WhatsApp (WA_PHONE_NUMBER_ID, WA_ACCESS_TOKEN, WA_APP_SECRET)")
+	}
+	if c.WhatsAppEnabled() {
+		if c.WAVerifyToken == "" {
+			missing = append(missing, "WA_VERIFY_TOKEN: obligatorio para registrar el webhook")
+		}
+		if c.WAOwnerPhone == "" {
+			missing = append(missing, "WA_OWNER_PHONE: tu número con código de país, ej. 5492231234567")
+		}
+	}
+	switch c.OwnerChannel {
+	case "telegram":
+		if !c.TelegramEnabled() {
+			missing = append(missing, "OWNER_CHANNEL=telegram pero falta TELEGRAM_BOT_TOKEN")
+		}
+	case "whatsapp":
+		if !c.WhatsAppEnabled() {
+			missing = append(missing, "OWNER_CHANNEL=whatsapp pero falta la configuración de WhatsApp")
+		}
+	default:
+		missing = append(missing, "OWNER_CHANNEL: telegram o whatsapp")
+	}
 	if c.GmailEnabled() && c.GmailPushToken == "" {
 		missing = append(missing, "GMAIL_PUSH_TOKEN: obligatorio si conectás Gmail")
 	}
@@ -160,4 +202,15 @@ func Load() (Config, error) {
 		return c, fmt.Errorf("falta configuración en .env:\n  · %s", strings.Join(missing, "\n  · "))
 	}
 	return c, nil
+}
+
+// digits deja solo números: "+54 9 223 123-4567" → "5492231234567" (formato wa_id).
+func digits(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

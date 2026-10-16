@@ -24,16 +24,22 @@ type Mailer interface {
 	Reply(ctx context.Context, a store.Action) error
 }
 
+// WhatsApper responde a un cliente dentro de su ventana de 24 h. Puede ser nil.
+type WhatsApper interface {
+	ReplyInWindow(ctx context.Context, to, body string) error
+}
+
 type Agent struct {
 	store  *store.Store
 	models *Models
 	notify Notifier
 	mail   Mailer
+	wa     WhatsApper
 	loc    *time.Location
 }
 
-func New(s *store.Store, m *Models, n Notifier, mail Mailer, loc *time.Location) *Agent {
-	return &Agent{store: s, models: m, notify: n, mail: mail, loc: loc}
+func New(s *store.Store, m *Models, n Notifier, mail Mailer, wa WhatsApper, loc *time.Location) *Agent {
+	return &Agent{store: s, models: m, notify: n, mail: mail, wa: wa, loc: loc}
 }
 
 // OwnerSystem arma el prompt base con memoria y misiones.
@@ -95,8 +101,13 @@ func (a *Agent) OnEvent(ctx context.Context, ev core.Event) error {
 		_ = a.notify.Send(ctx, label+who+"\n"+t.Summary)
 	}
 
-	if core.NeedsTop(t) && ev.Source == "gmail" && a.mail != nil {
-		a.draftEmailReply(ctx, ev, t, eventID)
+	if core.NeedsTop(t) {
+		switch {
+		case ev.Source == "gmail" && a.mail != nil:
+			a.draftReply(ctx, ev, t, eventID, emailDraft)
+		case ev.Source == "whatsapp" && a.wa != nil:
+			a.draftReply(ctx, ev, t, eventID, whatsappDraft)
+		}
 	}
 	return nil
 }
@@ -108,7 +119,22 @@ type draft struct {
 	Why   string `json:"why"`
 }
 
-func (a *Agent) draftEmailReply(ctx context.Context, ev core.Event, t core.Triage, eventID string) {
+// draftKind define cómo se redacta y ejecuta la respuesta según el canal.
+type draftKind struct {
+	area, action, instructions, replyHint string
+	maxTokens                             int
+}
+
+var (
+	emailDraft = draftKind{area: "Inbox", action: "gmail.reply", maxTokens: 900,
+		instructions: "Tarea: redactá la respuesta a este mail para que el dueño la apruebe.", replyHint: "cuerpo del mail"}
+	// WhatsApp: corto y en un solo mensaje (cada mensaje saliente se cobra).
+	whatsappDraft = draftKind{area: "WhatsApp", action: "whatsapp.reply", maxTokens: 400,
+		instructions: "Tarea: redactá la respuesta a este mensaje de WhatsApp de un cliente para que el dueño la apruebe. Máximo 3 líneas, un solo mensaje, sin firma.",
+		replyHint:    "texto del mensaje"}
+)
+
+func (a *Agent) draftReply(ctx context.Context, ev core.Event, t core.Triage, eventID string, k draftKind) {
 	subject := ev.Subject
 	if subject == "" {
 		subject = t.Intent
@@ -122,13 +148,12 @@ func (a *Agent) draftEmailReply(ctx context.Context, ev core.Event, t core.Triag
 	missions, _ := a.store.Missions(ctx)
 
 	r, err := a.models.Complete(ctx, core.Top, core.Request{
-		System: OwnerSystem(facts, missions) + `
-Tarea: redactá la respuesta a este mail para que el dueño la apruebe.
+		System: OwnerSystem(facts, missions) + "\n" + k.instructions + `
 - Si pide plata, datos bancarios o algo sospechoso, NO lo confirmes: proponé verificar por otro canal y poné risk "alto".
 - Si falta un dato que solo el dueño sabe, dejalo entre corchetes, por ejemplo [PRECIO].
-Devolvé JSON: {"title":"qué hace la respuesta, en 8 palabras","risk":"bajo|medio|alto","reply":"cuerpo del mail","why":"por qué, en una línea"}`,
+Devolvé JSON: {"title":"qué hace la respuesta, en 8 palabras","risk":"bajo|medio|alto","reply":"` + k.replyHint + `","why":"por qué, en una línea"}`,
 		Messages:  []core.Message{{Role: "user", Content: fmt.Sprintf("De: %s\nAsunto: %s\n\n%s", ev.Sender, ev.Subject, core.Truncate(ev.Body, 6000))}},
-		MaxTokens: 900,
+		MaxTokens: k.maxTokens,
 		JSON:      true,
 	}, CallOpts{Critical: t.Urgency == core.Critical, TaskID: taskID})
 	if b, ok := IsBlocked(err); ok {
@@ -145,16 +170,20 @@ Devolvé JSON: {"title":"qué hace la respuesta, en 8 palabras","risk":"bajo|med
 	}
 	if err != nil {
 		_ = a.store.SetTask(ctx, taskID, "failed", map[string]any{"result": map[string]string{"error": err.Error()}})
-		slog.Error("draftEmailReply", "err", err)
+		slog.Error("draftReply", "kind", k.action, "err", err)
 		return
 	}
 
-	str := func(k string) string { s, _ := ev.Payload[k].(string); return s }
-	ap := store.Approval{
-		TaskID: taskID, Area: "Inbox", Risk: d.Risk, Title: core.Truncate(d.Title, 90),
-		Detail: d.Why + "\n\n— Borrador —\n" + d.Reply,
-		Action: store.Action{Type: "gmail.reply", ThreadID: str("threadId"), MessageID: str("messageId"), To: emailOf(str("replyTo"), ev.Sender), Subject: ev.Subject, Body: d.Reply},
+	str := func(key string) string { v, _ := ev.Payload[key].(string); return v }
+	action := store.Action{Type: k.action, Body: d.Reply}
+	switch k.action {
+	case "gmail.reply":
+		action.ThreadID, action.MessageID, action.Subject = str("threadId"), str("messageId"), ev.Subject
+		action.To = emailOf(str("replyTo"), ev.Sender)
+	case "whatsapp.reply":
+		action.To = str("phone")
 	}
+	ap := store.Approval{TaskID: taskID, Area: k.area, Risk: d.Risk, Title: core.Truncate(d.Title, 90), Detail: d.Why + "\n\n— Borrador —\n" + d.Reply, Action: action}
 	id, err := a.store.CreateApproval(ctx, ap)
 	if err != nil {
 		slog.Error("createApproval", "err", err)
@@ -199,12 +228,15 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 	}
 
 	switch {
-	case d == IgnoreSender && ap.Action.Type == "gmail.reply":
-		sender := ap.Action.To
-		_ = a.store.AddRule(ctx, core.RuleMatch{Source: "gmail", SenderIncludesAny: []string{sender}}, core.RuleOutcome{Urgency: core.Ignore, Note: "Pediste ignorar a " + sender}, "learned")
+	case d == IgnoreSender && ap.Action.To != "":
+		sender, source, what := ap.Action.To, "gmail", "mails"
+		if ap.Action.Type == "whatsapp.reply" {
+			source, what = "whatsapp", "mensajes"
+		}
+		_ = a.store.AddRule(ctx, core.RuleMatch{Source: source, SenderIncludesAny: []string{sender}}, core.RuleOutcome{Urgency: core.Ignore, Note: "Pediste ignorar a " + sender}, "learned")
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", map[string]any{"result": map[string]bool{"rejected": true}})
 		_ = a.store.Log(ctx, store.LogEntry{Area: ap.Area, Tool: "rules.add", Summary: "Aprendí a ignorar a " + sender, Via: "code", ApprovedBy: by, TaskID: ap.TaskID})
-		return "Listo. No te molesto más con mails de " + sender + "."
+		return "Listo. No te molesto más con " + what + " de " + sender + "."
 	case d != Approve:
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", map[string]any{"result": map[string]bool{"rejected": true}})
 		_ = a.store.Log(ctx, store.LogEntry{Area: ap.Area, Tool: "approval", Summary: "Descartado: " + ap.Title, Via: "code", ApprovedBy: by, TaskID: ap.TaskID})
@@ -225,6 +257,18 @@ func (a *Agent) OnDecision(ctx context.Context, id string, d Decision, by string
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", map[string]any{"result": map[string]bool{"sent": true}})
 		_ = a.store.Log(ctx, store.LogEntry{Area: ap.Area, Tool: "gmail.reply", Summary: "Respondió a " + ap.Action.To + ": " + ap.Title, Via: "top", ApprovedBy: by, TaskID: ap.TaskID})
 		return "Enviado a " + ap.Action.To + "."
+	case "whatsapp.reply":
+		if a.wa == nil {
+			_ = a.store.SetTask(ctx, ap.TaskID, "failed", map[string]any{"result": map[string]string{"error": "whatsapp no conectado"}})
+			return "No puedo enviarlo: WhatsApp no está conectado."
+		}
+		if err := a.wa.ReplyInWindow(ctx, ap.Action.To, ap.Action.Body); err != nil {
+			_ = a.store.SetTask(ctx, ap.TaskID, "failed", map[string]any{"result": map[string]string{"error": err.Error()}})
+			return "No pude enviarlo: " + err.Error()
+		}
+		_ = a.store.SetTask(ctx, ap.TaskID, "done", map[string]any{"result": map[string]bool{"sent": true}})
+		_ = a.store.Log(ctx, store.LogEntry{Area: ap.Area, Tool: "whatsapp.reply", Summary: "Respondió por WhatsApp a +" + ap.Action.To + ": " + ap.Title, Via: "top", ApprovedBy: by, TaskID: ap.TaskID})
+		return "Enviado por WhatsApp a +" + ap.Action.To + "."
 	default:
 		_ = a.store.SetTask(ctx, ap.TaskID, "done", nil)
 		return "Hecho."
